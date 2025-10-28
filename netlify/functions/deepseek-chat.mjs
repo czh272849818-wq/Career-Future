@@ -1,7 +1,6 @@
 import https from 'node:https';
 
 export default async (req, context) => {
-  // CORS
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -10,46 +9,24 @@ export default async (req, context) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers, status: 204 });
   }
-
-  // 仅允许 POST
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers,
-    });
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers });
   }
-
-  // 读取 body
   let body;
   try {
     body = await req.json();
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
-      status: 400,
-      headers,
-    });
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers });
   }
-
   const { messages, model = 'deepseek-chat', temperature = 0.7 } = body;
   if (!Array.isArray(messages) || !messages.length) {
-    return new Response(JSON.stringify({ error: 'messages required' }), {
-      status: 400,
-      headers,
-    });
+    return new Response(JSON.stringify({ error: 'messages required' }), { status: 400, headers });
   }
-
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'Missing DEEPSEEK_API_KEY' }), {
-      status: 500,
-      headers,
-    });
+    return new Response(JSON.stringify({ error: 'Missing DEEPSEEK_API_KEY' }), { status: 500, headers });
   }
-
-  // 组装上游请求体
-  const upstreamBody = JSON.stringify({ model, messages, temperature, stream: false });
-
-  // 8 秒超时 + Promise.race
+  const upstreamBody = JSON.stringify({ model: 'deepseek-chat', messages, temperature, stream: false });
   const upstreamPromise = new Promise((resolve, reject) => {
     const post = https.request(
       {
@@ -61,7 +38,7 @@ export default async (req, context) => {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(upstreamBody),
         },
-        timeout: 8000,
+        timeout: 4000, // 4 s
       },
       (res) => {
         let data = '';
@@ -80,15 +57,11 @@ export default async (req, context) => {
     post.write(upstreamBody);
     post.end();
   });
-
   try {
     const raw = await upstreamPromise;
     return new Response(raw, { headers });
   } catch (err) {
     console.error('DeepSeek error:', err);
-    return new Response(
-      JSON.stringify({ error: 'DeepSeek API error', detail: err.message }),
-      { status: 502, headers }
-    );
+    return new Response(JSON.stringify({ error: 'DeepSeek API error', detail: err.message }), { status: 502, headers });
   }
 };
