@@ -55,21 +55,22 @@ const AIChat = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <div className="mb-4">
           <BackButton />
         </div>
-      {/* Sidebar */}
-      <ChatSidebar
-        sessions={sessions}
-        currentSessionId={currentSession?.id || null}
-        onNewSession={createNewSession}
-        onSwitchSession={switchSession}
-        onDeleteSession={deleteSession}
-      />
+        <div className="flex gap-6">
+          {/* Sidebar */}
+          <ChatSidebar
+            sessions={sessions}
+            currentSessionId={currentSession?.id || null}
+            onNewSession={createNewSession}
+            onSwitchSession={switchSession}
+            onDeleteSession={deleteSession}
+          />
 
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+          {/* Main Chat Area */}
+          <div className="flex-1 flex flex-col">
         {/* Header */}
         <div className="bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 p-4">
           <div className="flex items-center justify-between">
@@ -203,8 +204,9 @@ const AIChat = () => {
             placeholder="请输入您的职业问题..."
           />
         )}
+          </div>
+        </div>
       </div>
-    </div>
     </div>
   );
 };
