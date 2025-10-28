@@ -1,9 +1,9 @@
-export const API_BASE = import.meta.env.VITE_API_BASE || '';
+export const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
-// Map known API paths to Netlify Functions when no external API base is set
-export const apiUrl = (path: string) => {
-  if (API_BASE) return `${API_BASE}${path}`;
-  // default: use Netlify Functions for backend
-  if (path.startsWith('/api/deepseek/chat')) return '/.netlify/functions/deepseek-chat';
-  return path;
-};
+export function apiUrl(path: string): string {
+  // 本地或 Railway 后端走原路径；Netlify 无 BASE 时走边缘函数
+  if (!API_BASE && path.startsWith('/api/deepseek/chat')) {
+    return '/.netlify/edge-functions/deepseek-chat-edge';
+  }
+  return (API_BASE + path).replace(/([^:])\/+/g, '$1/');
+}
