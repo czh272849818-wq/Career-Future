@@ -31,6 +31,7 @@ export default async (request, context) => {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
+      ...(stream ? { Accept: "text/event-stream" } : {}),
     },
     body: JSON.stringify({ model, messages, temperature, stream }),
   });
@@ -58,6 +59,9 @@ export default async (request, context) => {
           controller.close();
           return;
         }
+        // 立即发送一个 SSE 注释作为心跳，防止边缘函数因首字节延迟而超时
+        const encoder = new TextEncoder();
+        controller.enqueue(encoder.encode(":\n\n"));
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
