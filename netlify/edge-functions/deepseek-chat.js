@@ -43,8 +43,10 @@ export default async (request, context) => {
     });
   }
 
-  // 流式透传
-  headers.set("Content-Type", "text/plain; charset=utf-8");
+  // 流式透传（SSE）
+  headers.set("Content-Type", "text/event-stream");
+  headers.set("Cache-Control", "no-cache");
+  headers.set("X-Accel-Buffering", "no");
   return new Response(upstreamRes.body, { headers });
 };
 

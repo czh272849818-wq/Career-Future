@@ -116,9 +116,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setIsTyping(true);
 
     try {
+      // 限制上下文长度，去除欢迎消息以减少首字节延迟
+      const MAX_CONTEXT_MESSAGES = 8;
+      const conversation = updatedSession.messages
+        .filter(m => m.id !== 'welcome')
+        .slice(-MAX_CONTEXT_MESSAGES);
       const apiMessages = [
         { role: 'system', content: '你是一位专业的中文职业规划顾问，请用清晰、结构化的方式回答。' },
-        ...updatedSession.messages.map(m => ({
+        ...conversation.map(m => ({
           role: m.sender === 'user' ? 'user' : 'assistant',
           content: m.content
         }))
