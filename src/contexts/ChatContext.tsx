@@ -210,7 +210,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           return;
         } catch (e: any) {
           const msg = String(e?.message || e);
-          if (msg.includes('ERR_NETWORK_IO_SUSPENDED') || msg.includes('Failed to fetch')) {
+          const lower = msg.toLowerCase();
+          if (
+            lower.includes('err_network_io_suspended') ||
+            lower.includes('failed to fetch') ||
+            lower.includes('edge function timed out') ||
+            lower.includes('deepseek api stream error')
+          ) {
             console.warn('[DeepSeek] streaming suspended/aborted, retrying without stream...');
             setStreamEnabled(false);
             const resp = await fetch(apiUrl('/api/deepseek/chat'), {

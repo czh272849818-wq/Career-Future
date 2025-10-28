@@ -45,8 +45,8 @@ export default async (request, context) => {
     const streamBody = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
-        // 立即发送心跳（SSE 注释行）
-        controller.enqueue(encoder.encode(":\n\n"));
+        // 立即发送心跳（兼容客户端解析的 data: 行）
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ ping: true })}\n\n`));
 
         let upstreamRes;
         try {
@@ -76,7 +76,7 @@ export default async (request, context) => {
         // 定期心跳，防止链路中断与中间层缓冲
         const heartbeat = setInterval(() => {
           try {
-            controller.enqueue(encoder.encode(":\n\n"));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ ping: true })}\n\n`));
           } catch (_) {}
         }, 10000);
 
