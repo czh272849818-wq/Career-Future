@@ -382,7 +382,7 @@ const mockQuestions: AssessmentQuestion[] = [
   }
 ];
 
-// 基于 DeepSeek 生成题库（JSON）
+// 基于 DeepSeek 生成题库（优先走流式，避免 Edge 首字节超时；失败时回退非流式）
 const generateQuestionsWithDeepSeek = async (params: { type: 'general' | 'industry'; industry?: string; position?: string }): Promise<AssessmentQuestion[]> => {
   try {
     const sys = '你是资深中文职业测评题目生成器。请严格输出JSON数组，每个元素包含: id, question, category, options(4项，每项含id,text,trait可选,hint可选)。category仅限: personality | skills | interests | values。不要输出Markdown代码块或任何额外文本。';
@@ -396,36 +396,91 @@ const generateQuestionsWithDeepSeek = async (params: { type: 'general' | 'indust
       { role: 'user', content: user }
     ];
 
-    const resp = await fetch(apiUrl('/api/deepseek/chat'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, model: DEFAULT_LLM_MODEL, temperature: DEFAULT_TEMPERATURE, stream: false })
-    });
+    // 1) 尝试流式，快速拿到首字节并避免平台超时
+    try {
+      const resp = await fetch(apiUrl('/api/deepseek/chat'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages, model: DEFAULT_LLM_MODEL, temperature: DEFAULT_TEMPERATURE, stream: true })
+      });
+      if (!resp.ok || !resp.body) throw new Error(await resp.text());
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let accumulated = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+        for (const part of parts) {
+          const line = part.split('\n').find(l => l.startsWith('data:'));
+          if (!line) continue;
+          const dataStr = line.slice(5).trim();
+          if (dataStr === '[DONE]') continue;
+          try {
+            const json = JSON.parse(dataStr);
+            if (json?.ping) continue;
+            const delta = json?.choices?.[0]?.delta?.content || json?.choices?.[0]?.message?.content || '';
+            if (delta) accumulated += delta;
+          } catch { /* ignore non-JSON */ }
+        }
+      }
+      let content = String(accumulated).trim().replace(/^```json|^```|```$/g, '');
+      const arr = JSON.parse(content);
+      if (!Array.isArray(arr)) throw new Error('Invalid JSON');
 
-    if (!resp.ok) throw new Error(await resp.text());
-    const data = await resp.json();
-    let content = data?.choices?.[0]?.message?.content || '';
-    content = String(content).trim().replace(/^```json|^```|```$/g, '');
-    const arr = JSON.parse(content);
-    if (!Array.isArray(arr)) throw new Error('Invalid JSON');
+      const validCats = ['personality','skills','interests','values'];
+      const normalized: AssessmentQuestion[] = arr.map((q: any, idx: number) => ({
+        id: String(q?.id || `q_${idx + 1}`),
+        question: String(q?.question || ''),
+        category: validCats.includes(q?.category) ? q.category : 'personality',
+        options: Array.isArray(q?.options)
+          ? q.options.slice(0, 4).map((o: any, j: number) => ({
+              id: String(o?.id || `o${idx + 1}${j + 1}`),
+              text: String(o?.text || ''),
+              trait: o?.trait ? String(o.trait) : undefined,
+              hint: o?.hint ? String(o.hint) : undefined
+            }))
+          : []
+      })).filter(q => q.question && q.options.length >= 2);
 
-    const validCats = ['personality','skills','interests','values'];
-    const normalized: AssessmentQuestion[] = arr.map((q: any, idx: number) => ({
-      id: String(q?.id || `q_${idx + 1}`),
-      question: String(q?.question || ''),
-      category: validCats.includes(q?.category) ? q.category : 'personality',
-      options: Array.isArray(q?.options)
-        ? q.options.slice(0, 4).map((o: any, j: number) => ({
-            id: String(o?.id || `o${idx + 1}${j + 1}`),
-            text: String(o?.text || ''),
-            trait: o?.trait ? String(o.trait) : undefined,
-            hint: o?.hint ? String(o.hint) : undefined
-          }))
-        : []
-    })).filter(q => q.question && q.options.length >= 2);
+      if (!normalized.length) throw new Error('No questions generated');
+      return normalized;
+    } catch (streamErr) {
+      // 2) 流式失败则回退到非流式
+      const resp = await fetch(apiUrl('/api/deepseek/chat'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages, model: DEFAULT_LLM_MODEL, temperature: DEFAULT_TEMPERATURE, stream: false })
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = await resp.json();
+      let content = data?.choices?.[0]?.message?.content || '';
+      content = String(content).trim().replace(/^```json|^```|```$/g, '');
+      const arr = JSON.parse(content);
+      if (!Array.isArray(arr)) throw new Error('Invalid JSON');
 
-    if (!normalized.length) throw new Error('No questions generated');
-    return normalized;
+      const validCats = ['personality','skills','interests','values'];
+      const normalized: AssessmentQuestion[] = arr.map((q: any, idx: number) => ({
+        id: String(q?.id || `q_${idx + 1}`),
+        question: String(q?.question || ''),
+        category: validCats.includes(q?.category) ? q.category : 'personality',
+        options: Array.isArray(q?.options)
+          ? q.options.slice(0, 4).map((o: any, j: number) => ({
+              id: String(o?.id || `o${idx + 1}${j + 1}`),
+              text: String(o?.text || ''),
+              trait: o?.trait ? String(o.trait) : undefined,
+              hint: o?.hint ? String(o.hint) : undefined
+            }))
+          : []
+      })).filter(q => q.question && q.options.length >= 2);
+
+      if (!normalized.length) throw new Error('No questions generated');
+      return normalized;
+    }
   } catch (e) {
     console.warn('[DeepSeek] question generation failed:', e);
     return [];
