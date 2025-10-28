@@ -6,9 +6,8 @@
 [functions]
   node_bundler = "esbuild"
 
-[[edge_functions]]
-  path = "/deepseek-chat-edge"
-  function = "deepseek-chat"
+[edge_functions]
+  directory = "netlify/edge-functions"
 
 [[redirects]]
   from = "/*"
