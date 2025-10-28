@@ -6,6 +6,9 @@
 [functions]
   node_bundler = "esbuild"
 
+[edge_functions]
+  directory = "netlify/edge-functions"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
