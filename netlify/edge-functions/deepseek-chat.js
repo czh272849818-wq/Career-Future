@@ -48,4 +48,4 @@ export default async (request, context) => {
   return new Response(upstreamRes.body, { headers });
 };
 
-export const config = { path: "/deepseek-chat-edge" };
+export const config = { path: "/deepseek-chat" };
