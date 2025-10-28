@@ -3,7 +3,9 @@
   publish = "dist"
   functions = "netlify/functions"
 
-# Keep SPA routing; we already have public/_redirects but this is a fallback.
+[functions]
+  node_bundler = "esbuild"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
