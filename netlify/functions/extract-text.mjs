@@ -42,7 +42,8 @@ export default async (req) => {
     // 图片 OCR（JPG/PNG/BMP/TIFF）
     if (mimeType.startsWith('image/') || /(png|jpe?g|bmp|tif?f)$/i.test(lowerName)) {
       try {
-        const { default: Tesseract } = await import('tesseract.js');
+        const tModule = await import('tesseract.js');
+        const Tesseract = tModule.default || tModule;
         const result = await Tesseract.recognize(buf, 'chi_sim+eng', { logger: () => {} });
         const text = String(result?.data?.text || '').trim();
         console.log(`[extract-text] method=ocr-image fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
@@ -56,7 +57,8 @@ export default async (req) => {
     // DOCX
     if (lowerName.endsWith('.docx') || mimeType.includes('officedocument.wordprocessingml.document')) {
       try {
-        const { default: mammoth } = await import('mammoth');
+        const mModule = await import('mammoth');
+        const mammoth = mModule.default || mModule;
         const result = await mammoth.extractRawText({ buffer: buf });
         const text = (result?.value || '').trim();
         console.log(`[extract-text] method=docx fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
@@ -72,7 +74,8 @@ export default async (req) => {
     // DOC
     if (lowerName.endsWith('.doc') || mimeType.includes('msword')) {
       try {
-        const { default: WordExtractor } = await import('word-extractor');
+        const weModule = await import('word-extractor');
+        const WordExtractor = weModule.default || weModule;
         const extractor = new WordExtractor();
         const doc = await extractor.extract(buf);
         const text = String(doc?.getText?.() || doc?.getBody?.() || '').trim();
@@ -88,7 +91,8 @@ export default async (req) => {
     // PDF
     if (lowerName.endsWith('.pdf') || mimeType.includes('pdf')) {
       try {
-        const { default: pdfParse } = await import('pdf-parse');
+        const pdfModule = await import('pdf-parse');
+        const pdfParse = pdfModule.default || pdfModule;
         const data = await pdfParse(buf);
         const text = String(data?.text || '').trim();
         console.log(`[extract-text] method=pdf fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
