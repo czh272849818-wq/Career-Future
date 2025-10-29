@@ -1,7 +1,4 @@
-import mammoth from 'mammoth';
-import pdfParse from 'pdf-parse';
-import WordExtractor from 'word-extractor';
-import Tesseract from 'tesseract.js';
+// 按需动态加载依赖，避免在未安装依赖时顶层初始化失败导致 502
 
 // Netlify Node Function: 简历文本提取（支持 TXT / DOCX / DOC / PDF / 图片OCR）
 export default async (req) => {
@@ -45,6 +42,7 @@ export default async (req) => {
     // 图片 OCR（JPG/PNG/BMP/TIFF）
     if (mimeType.startsWith('image/') || /(png|jpe?g|bmp|tif?f)$/i.test(lowerName)) {
       try {
+        const { default: Tesseract } = await import('tesseract.js');
         const result = await Tesseract.recognize(buf, 'chi_sim+eng', { logger: () => {} });
         const text = String(result?.data?.text || '').trim();
         console.log(`[extract-text] method=ocr-image fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
@@ -57,15 +55,24 @@ export default async (req) => {
 
     // DOCX
     if (lowerName.endsWith('.docx') || mimeType.includes('officedocument.wordprocessingml.document')) {
-      const result = await mammoth.extractRawText({ buffer: buf });
-      const text = (result?.value || '').trim();
-      console.log(`[extract-text] method=docx fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
-      return new Response(JSON.stringify({ text, method: 'docx' }), { headers });
+      try {
+        const { default: mammoth } = await import('mammoth');
+        const result = await mammoth.extractRawText({ buffer: buf });
+        const text = (result?.value || '').trim();
+        console.log(`[extract-text] method=docx fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
+        return new Response(JSON.stringify({ text, method: 'docx' }), { headers });
+      } catch (docxErr) {
+        console.warn('[DOCX] mammoth import/parse failed:', docxErr);
+        // 尝试直接 UTF-8 作为兜底，避免 502；用户可重新上传 PDF 或 TXT
+        const text = buf.toString('utf-8');
+        return new Response(JSON.stringify({ text, method: 'docx-fallback-utf8', warn: 'docx parser unavailable' }), { headers });
+      }
     }
 
     // DOC
     if (lowerName.endsWith('.doc') || mimeType.includes('msword')) {
       try {
+        const { default: WordExtractor } = await import('word-extractor');
         const extractor = new WordExtractor();
         const doc = await extractor.extract(buf);
         const text = String(doc?.getText?.() || doc?.getBody?.() || '').trim();
@@ -80,10 +87,16 @@ export default async (req) => {
 
     // PDF
     if (lowerName.endsWith('.pdf') || mimeType.includes('pdf')) {
-      const data = await pdfParse(buf);
-      const text = String(data?.text || '').trim();
-      console.log(`[extract-text] method=pdf fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
-      return new Response(JSON.stringify({ text, method: 'pdf' }), { headers });
+      try {
+        const { default: pdfParse } = await import('pdf-parse');
+        const data = await pdfParse(buf);
+        const text = String(data?.text || '').trim();
+        console.log(`[extract-text] method=pdf fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
+        return new Response(JSON.stringify({ text, method: 'pdf' }), { headers });
+      } catch (pdfErr) {
+        console.warn('[PDF] parse failed:', pdfErr);
+        return new Response(JSON.stringify({ error: 'pdf parse failed', details: String(pdfErr) }), { status: 500, headers });
+      }
     }
 
     // 其他格式：回退二进制直接转 UTF-8
