@@ -10,6 +10,10 @@
   path = "/deepseek-chat"
   function = "deepseek-chat"
 
+[[edge_functions]]
+  path = "/deepseek-taxonomy"
+  function = "deepseek-taxonomy"
+
 [[redirects]]
   from = "/api/extract-text"
   to = "/.netlify/functions/extract-text"
@@ -18,6 +22,11 @@
 [[redirects]]
   from = "/api/deepseek/chat"
   to = "/deepseek-chat"
+  status = 200
+
+[[redirects]]
+  from = "/api/deepseek/taxonomy"
+  to = "/deepseek-taxonomy"
   status = 200
 
 [[redirects]]

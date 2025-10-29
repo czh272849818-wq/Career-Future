@@ -29,6 +29,12 @@ export function apiUrl(path: string): string {
       return '/deepseek-chat';
     }
   }
+  if (path === '/api/deepseek/taxonomy') {
+    // 行业/岗位 taxonomy 走 Edge，非流式 JSON
+    if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
+      return '/deepseek-taxonomy';
+    }
+  }
   if (path === '/api/auth/register') {
     if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
       return '/.netlify/functions/auth-register';

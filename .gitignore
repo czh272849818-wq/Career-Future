@@ -28,3 +28,6 @@ server/data
 .env
 .env.*
 .env.local
+
+# Local Netlify folder
+.netlify

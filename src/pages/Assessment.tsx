@@ -100,6 +100,130 @@ const Assessment = () => {
   const industryPositions = getIndustryPositions();
   const industries = Object.keys(industryPositions);
 
+  // DeepSeek taxonomy 远程数据（行业与岗位），含加载与错误状态
+  const [industriesRemote, setIndustriesRemote] = useState<string[] | null>(null);
+  const [positionsRemote, setPositionsRemote] = useState<string[] | null>(null);
+  const [taxLoadingIndustries, setTaxLoadingIndustries] = useState<boolean>(false);
+  const [taxLoadingPositions, setTaxLoadingPositions] = useState<boolean>(false);
+  const [taxError, setTaxError] = useState<string>('');
+
+  // 加载行业列表（优先调用 Edge taxonomy，失败时回退 DeepSeek chat，再失败回退本地）
+  useEffect(() => {
+    let cancelled = false;
+    const loadIndustries = async () => {
+      setTaxLoadingIndustries(true);
+      setTaxError('');
+      try {
+        const base = apiUrl('/api/deepseek/taxonomy');
+        const resp = await fetch(`${base}?kind=industries`);
+        const ct = resp.headers?.get('content-type') || '';
+        if (resp.ok && ct.includes('application/json')) {
+          const data = await resp.json();
+          const names: string[] = Array.isArray(data?.industries) ? data.industries : [];
+          if (!cancelled && names.length > 0) {
+            setIndustriesRemote(names);
+            return;
+          }
+        }
+        throw new Error('taxonomy endpoint failed');
+      } catch (_) {
+        // 回退到 /deepseek/chat 生成行业列表
+        try {
+          const sys = '你是行业分类专家。只返回JSON对象 {"industries": [string...] }，且中文，不要其他文本。';
+          const user = '请生成中国语境下的行业列表，最多60项，去重规范，仅返回JSON。';
+          const resp = await fetch(apiUrl('/api/deepseek/chat'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: [
+                { role: 'system', content: sys },
+                { role: 'user', content: user }
+              ],
+              model: DEFAULT_LLM_MODEL,
+              temperature: Math.min(0.3, DEFAULT_TEMPERATURE),
+              stream: false
+            })
+          });
+          if (!resp.ok) throw new Error(await resp.text());
+          const data = await resp.json();
+          let content = String(data?.choices?.[0]?.message?.content || '');
+          content = content.trim().replace(/^```json|^```|```$/g, '');
+          const json = JSON.parse(content);
+          const names: string[] = Array.isArray(json?.industries) ? json.industries : [];
+          if (!cancelled && names.length > 0) {
+            setIndustriesRemote(names);
+            return;
+          }
+        } catch (e) {
+          if (!cancelled) setTaxError('行业列表加载失败，已使用本地数据');
+        }
+      } finally {
+        if (!cancelled) setTaxLoadingIndustries(false);
+      }
+    };
+    loadIndustries();
+    return () => { cancelled = true; };
+  }, []);
+
+  // 加载岗位列表（基于选择的行业）
+  useEffect(() => {
+    if (!selectedIndustryLocal) { setPositionsRemote(null); return; }
+    let cancelled = false;
+    const loadPositions = async () => {
+      setTaxLoadingPositions(true);
+      setTaxError('');
+      try {
+        const base = apiUrl('/api/deepseek/taxonomy');
+        const resp = await fetch(`${base}?kind=positions&industry=${encodeURIComponent(selectedIndustryLocal)}`);
+        const ct = resp.headers?.get('content-type') || '';
+        if (resp.ok && ct.includes('application/json')) {
+          const data = await resp.json();
+          const names: string[] = Array.isArray(data?.positions) ? data.positions : [];
+          if (!cancelled && names.length > 0) {
+            setPositionsRemote(names);
+            return;
+          }
+        }
+        throw new Error('taxonomy endpoint failed');
+      } catch (_) {
+        // 回退到 /deepseek/chat 生成岗位列表
+        try {
+          const sys = '你是岗位分类专家。只返回JSON对象 {"positions": [string...] }，中文，不要其他文本。';
+          const user = `请生成行业「${selectedIndustryLocal}」的常见岗位列表，最多60项，仅返回JSON。`;
+          const resp = await fetch(apiUrl('/api/deepseek/chat'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: [
+                { role: 'system', content: sys },
+                { role: 'user', content: user }
+              ],
+              model: DEFAULT_LLM_MODEL,
+              temperature: Math.min(0.3, DEFAULT_TEMPERATURE),
+              stream: false
+            })
+          });
+          if (!resp.ok) throw new Error(await resp.text());
+          const data = await resp.json();
+          let content = String(data?.choices?.[0]?.message?.content || '');
+          content = content.trim().replace(/^```json|^```|```$/g, '');
+          const json = JSON.parse(content);
+          const names: string[] = Array.isArray(json?.positions) ? json.positions : [];
+          if (!cancelled && names.length > 0) {
+            setPositionsRemote(names);
+            return;
+          }
+        } catch (e) {
+          if (!cancelled) setTaxError('岗位列表加载失败，已使用本地数据');
+        }
+      } finally {
+        if (!cancelled) setTaxLoadingPositions(false);
+      }
+    };
+    loadPositions();
+    return () => { cancelled = true; };
+  }, [selectedIndustryLocal]);
+
   // DeepSeek题库优化成功时，弹出短暂提示
   useEffect(() => {
     if (lastQuestionSource === 'deepseek') {
@@ -1253,8 +1377,8 @@ const Assessment = () => {
                     }}
                     className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white"
                   >
-                    <option value="">请选择行业</option>
-                    {industries.map((ind) => (
+                    <option value="">{taxLoadingIndustries ? '正在加载行业...' : '请选择行业'}</option>
+                    {(industriesRemote ?? industries).map((ind) => (
                       <option key={ind} value={ind}>{ind}</option>
                     ))}
                   </select>
@@ -1267,13 +1391,15 @@ const Assessment = () => {
                     disabled={!selectedIndustryLocal}
                     className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white disabled:opacity-50"
                   >
-                    <option value="">{selectedIndustryLocal ? '请选择岗位' : '请先选择行业'}</option>
-                    {(industryPositions[selectedIndustryLocal] || []).map((pos) => (
+                    <option value="">{selectedIndustryLocal ? (taxLoadingPositions ? '正在加载岗位...' : '请选择岗位') : '请先选择行业'}</option>
+                    {(
+                      (positionsRemote ?? industryPositions[selectedIndustryLocal] ?? [])
+                    ).map((pos) => (
                       <option key={pos} value={pos}>{pos}</option>
                     ))}
                   </select>
                 </div>
-                <p className="text-xs text-gray-400">选择行业与二级岗位后，再开始专项测评</p>
+                <p className="text-xs text-gray-400">{taxError || '选择行业与二级岗位后，再开始专项测评'}</p>
               </div>
               
               <button
