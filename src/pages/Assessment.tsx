@@ -991,7 +991,7 @@ const Assessment = () => {
                   )}
                   {aiAnalysisText && (
                     <ReactMarkdown
-                      className="prose prose-invert max-w-none text-sm"
+                      className="max-w-none text-sm text-white"
                       remarkPlugins={[remarkGfm]}
                     >
                       {aiAnalysisText}
