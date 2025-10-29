@@ -28,6 +28,21 @@ export function apiUrl(path: string): string {
       return '/deepseek-chat';
     }
   }
+  if (path === '/api/auth/register') {
+    if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
+      return '/.netlify/functions/auth-register';
+    }
+  }
+  if (path === '/api/auth/login') {
+    if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
+      return '/.netlify/functions/auth-login';
+    }
+  }
+  if (path === '/api/auth/demo') {
+    if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
+      return '/.netlify/functions/auth-demo';
+    }
+  }
 
   // 非 Netlify 且配置了后端基础地址时，拼接为绝对路径
   if (base && !onNetlify) return `${base}${path}`;
