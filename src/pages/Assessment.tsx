@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useNavigate } from 'react-router-dom';
 import { 
   Brain, 
@@ -988,9 +990,12 @@ const Assessment = () => {
                     <p className="text-sm text-red-400">{aiError}</p>
                   )}
                   {aiAnalysisText && (
-                    <div className="prose prose-invert max-w-none">
-                      <pre className="whitespace-pre-wrap text-gray-200 text-sm">{aiAnalysisText}</pre>
-                    </div>
+                    <ReactMarkdown
+                      className="prose prose-invert max-w-none text-sm"
+                      remarkPlugins={[remarkGfm]}
+                    >
+                      {aiAnalysisText}
+                    </ReactMarkdown>
                   )}
                 </div>
               )}
