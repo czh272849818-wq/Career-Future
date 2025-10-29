@@ -38,7 +38,7 @@ export default async (req, context) => {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(upstreamBody),
         },
-        timeout: 4000, // 4 s
+        timeout: 10000, // 10 s
       },
       (res) => {
         let data = '';
