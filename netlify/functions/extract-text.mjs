@@ -1,9 +1,7 @@
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const mammoth = require('mammoth');
-const pdfParse = require('pdf-parse');
-const WordExtractor = require('word-extractor');
-const Tesseract = require('tesseract.js');
+import mammoth from 'mammoth';
+import pdfParse from 'pdf-parse';
+import WordExtractor from 'word-extractor';
+import Tesseract from 'tesseract.js';
 
 // Netlify Node Function: 简历文本提取（支持 TXT / DOCX / DOC / PDF / 图片OCR）
 export default async (req) => {
