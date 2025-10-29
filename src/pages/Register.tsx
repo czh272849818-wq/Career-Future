@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Smartphone, CheckCircle } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import BackButton from '../components/ui/BackButton';
 
@@ -8,7 +8,6 @@ const Register = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    phone: '',
     password: '',
     confirmPassword: '',
     agreeTo: false
@@ -21,7 +20,7 @@ const Register = () => {
   const [passwordStrength, setPasswordStrength] = useState(0);
 
   const navigate = useNavigate();
-  const { register, socialLogin } = useAuth();
+  const { register } = useAuth();
 
   const calculatePasswordStrength = (password: string) => {
     let strength = 0;
@@ -65,19 +64,7 @@ const Register = () => {
     }
   };
 
-  const handleSocialLogin = async (provider: 'wechat' | 'qq' | 'phone') => {
-    setSocialLoading(provider);
-    setError('');
-
-    try {
-      await socialLogin(provider);
-      navigate('/assessment');
-    } catch (err) {
-      setError('注册失败，请重试');
-    } finally {
-      setSocialLoading('');
-    }
-  };
+  // 当前版本不支持社交注册
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
@@ -281,59 +268,7 @@ const Register = () => {
             </button>
           </form>
 
-          {/* Social Register */}
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-600" />
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-gray-800/50 text-gray-400">或使用以下方式注册</span>
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-3 gap-3">
-              <button
-                onClick={() => handleSocialLogin('wechat')}
-                disabled={socialLoading !== ''}
-                className="w-full inline-flex justify-center py-2 px-4 border border-gray-600 rounded-lg shadow-sm bg-gray-700 text-sm font-medium text-gray-300 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {socialLoading === 'wechat' ? (
-                  <div className="animate-spin h-5 w-5 border-2 border-gray-400 border-t-gray-200 rounded-full"></div>
-                ) : (
-                  <div className="w-5 h-5 bg-green-500 rounded-sm flex items-center justify-center">
-                    <span className="text-white text-xs font-bold">微</span>
-                  </div>
-                )}
-              </button>
-
-              <button
-                onClick={() => handleSocialLogin('qq')}
-                disabled={socialLoading !== ''}
-                className="w-full inline-flex justify-center py-2 px-4 border border-gray-600 rounded-lg shadow-sm bg-gray-700 text-sm font-medium text-gray-300 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {socialLoading === 'qq' ? (
-                  <div className="animate-spin h-5 w-5 border-2 border-gray-400 border-t-gray-200 rounded-full"></div>
-                ) : (
-                  <div className="h-5 w-5 bg-blue-500 rounded-sm flex items-center justify-center">
-                    <span className="text-white text-xs font-bold">Q</span>
-                  </div>
-                )}
-              </button>
-
-              <button
-                onClick={() => handleSocialLogin('phone')}
-                disabled={socialLoading !== ''}
-                className="w-full inline-flex justify-center py-2 px-4 border border-gray-600 rounded-lg shadow-sm bg-gray-700 text-sm font-medium text-gray-300 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {socialLoading === 'phone' ? (
-                  <div className="animate-spin h-5 w-5 border-2 border-gray-400 border-t-gray-200 rounded-full"></div>
-                ) : (
-                  <Smartphone className="h-5 w-5 text-gray-400" />
-                )}
-              </button>
-            </div>
-          </div>
+          {/* 社交注册已移除：当前版本仅支持邮箱+密码注册 */}
 
           {/* Login Link */}
           <div className="mt-6 text-center">

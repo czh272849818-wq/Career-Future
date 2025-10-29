@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
+import { useAuth } from './AuthContext';
 import { DEFAULT_LLM_MODEL, DEFAULT_TEMPERATURE } from '../llm/config';
 import { apiUrl } from '../api';
 
@@ -503,6 +504,8 @@ export function AssessmentProvider({ children }: { children: React.ReactNode }) 
   const [isGenerating, setIsGenerating] = useState(false);
   const [lastQuestionSource, setLastQuestionSource] = useState<'initial' | 'deepseek'>('initial');
   const [generationError, setGenerationError] = useState<string | null>(null);
+  // 接入认证上下文，用于后端持久化
+  const { user, isAuthenticated } = useAuth();
 
   // 轻量缓存：按类型+行业+岗位缓存生成结果（本地 6 小时）
   const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
@@ -706,6 +709,29 @@ export function AssessmentProvider({ children }: { children: React.ReactNode }) 
     };
   
     setResults(prev => [result, ...prev]);
+
+    // 后端持久化：将评估结果保存到当前登录用户ID下
+    if (isAuthenticated && user?.id) {
+      (async () => {
+        try {
+          const token = localStorage.getItem('auth_token') || '';
+          const resp = await fetch(apiUrl(`/api/users/${user.id}/assessments`), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify(result)
+          });
+          if (!resp.ok) {
+            const text = await resp.text();
+            console.warn('[Assessment] 保存评估结果失败:', text);
+          }
+        } catch (err) {
+          console.warn('[Assessment] 后端保存失败:', err);
+        }
+      })();
+    }
     return result;
   };
 

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { apiUrl } from '../api';
 
 interface User {
   id: string;
@@ -16,6 +17,7 @@ interface AuthContextType {
   register: (userData: Partial<User> & { password: string }) => Promise<void>;
   logout: () => void;
   socialLogin: (provider: 'wechat' | 'qq' | 'phone') => Promise<void>;
+  loginDemo: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -43,77 +45,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // 模拟检查用户是否存在，如果不存在则抛出错误让上层处理自动注册
-      const userExists = Math.random() > 0.3; // 70%概率用户存在，30%概率需要注册
-      
-      if (!userExists) {
-        throw new Error('用户不存在');
-      }
-      
-      const mockUser: User = {
-        id: '1',
-        name: '张三',
-        email,
-        avatar: 'https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?w=150',
-        registeredAt: new Date()
-      };
-      
-      setUser(mockUser);
-      setIsAuthenticated(true);
-      
-      // Store auth data
-      localStorage.setItem('auth_token', 'mock_token_' + Date.now());
-      localStorage.setItem('user_data', JSON.stringify(mockUser));
-    } catch (error) {
-      throw error; // 传递原始错误，让上层处理
+    const resp = await fetch(apiUrl('/api/auth/login'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || '登录失败');
     }
+    const data = await resp.json();
+    const safeUser: User = { ...data.user, registeredAt: new Date(data.user?.registeredAt || Date.now()) };
+    setUser(safeUser);
+    setIsAuthenticated(true);
+    localStorage.setItem('auth_token', data.token);
+    localStorage.setItem('user_data', JSON.stringify(safeUser));
   };
 
   const register = async (userData: Partial<User> & { password: string }) => {
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const newUser: User = {
-        id: Date.now().toString(),
-        name: userData.name || '',
-        email: userData.email || '',
-        phone: userData.phone,
-        registeredAt: new Date()
-      };
-      
-      setUser(newUser);
-      setIsAuthenticated(true);
-      
-      localStorage.setItem('auth_token', 'mock_token_' + Date.now());
-      localStorage.setItem('user_data', JSON.stringify(newUser));
-    } catch (error) {
-      throw new Error('注册失败');
+    const resp = await fetch(apiUrl('/api/auth/register'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: userData.email, password: userData.password, name: userData.name })
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || '注册失败');
     }
+    const data = await resp.json();
+    const safeUser: User = { ...data.user, registeredAt: new Date(data.user?.registeredAt || Date.now()) };
+    setUser(safeUser);
+    setIsAuthenticated(true);
+    localStorage.setItem('auth_token', data.token);
+    localStorage.setItem('user_data', JSON.stringify(safeUser));
   };
 
   const socialLogin = async (provider: 'wechat' | 'qq' | 'phone') => {
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      const mockUser: User = {
-        id: Date.now().toString(),
-        name: provider === 'wechat' ? '微信用户' : provider === 'qq' ? 'QQ用户' : '手机用户',
-        email: `${provider}@example.com`,
-        registeredAt: new Date()
-      };
-      
-      setUser(mockUser);
-      setIsAuthenticated(true);
-      
-      localStorage.setItem('auth_token', 'mock_token_' + Date.now());
-      localStorage.setItem('user_data', JSON.stringify(mockUser));
-    } catch (error) {
-      throw new Error('社交登录失败');
+    // 这里保持占位；当前需求仅邮箱+密码登录，社交登录不启用
+    throw new Error('当前版本未启用社交登录');
+  };
+
+  const loginDemo = async () => {
+    const resp = await fetch(apiUrl('/api/auth/demo'), { method: 'POST' });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || '演示登录失败');
     }
+    const data = await resp.json();
+    const safeUser: User = { ...data.user, registeredAt: new Date(data.user?.registeredAt || Date.now()) };
+    setUser(safeUser);
+    setIsAuthenticated(true);
+    localStorage.setItem('auth_token', data.token);
+    localStorage.setItem('user_data', JSON.stringify(safeUser));
   };
 
   const logout = () => {
@@ -130,7 +113,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       register,
       logout,
-      socialLogin
+      socialLogin,
+      loginDemo
     }}>
       {children}
     </AuthContext.Provider>

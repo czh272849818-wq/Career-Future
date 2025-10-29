@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Smartphone } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import BackButton from '../components/ui/BackButton';
 
@@ -16,7 +16,7 @@ const Login = () => {
   const [error, setError] = useState('');
 
   const navigate = useNavigate();
-  const { login, socialLogin } = useAuth();
+  const { login, loginDemo } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,17 +24,7 @@ const Login = () => {
     setIsLoading(true);
 
     try {
-      // 尝试登录，如果失败则自动注册
-      try {
-        await login(formData.email, formData.password);
-      } catch (loginError) {
-        // 登录失败，尝试自动注册
-        await register({
-          name: formData.email.split('@')[0], // 使用邮箱前缀作为默认用户名
-          email: formData.email,
-          password: formData.password
-        });
-      }
+      await login(formData.email, formData.password);
       navigate('/dashboard');
     } catch (err) {
       setError('登录失败，请检查邮箱和密码');
@@ -43,15 +33,14 @@ const Login = () => {
     }
   };
 
-  const handleSocialLogin = async (provider: 'wechat' | 'qq' | 'phone') => {
-    setSocialLoading(provider);
+  const handleDemoLogin = async () => {
+    setSocialLoading('demo');
     setError('');
-
     try {
-      await socialLogin(provider);
+      await loginDemo();
       navigate('/dashboard');
     } catch (err) {
-      setError('登录失败，请重试');
+      setError('演示账户登录失败，请稍后重试');
     } finally {
       setSocialLoading('');
     }
@@ -156,55 +145,26 @@ const Login = () => {
             </button>
           </form>
 
-          {/* Social Login */}
+          {/* Demo Login */}
           <div className="mt-6">
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-gray-600" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-gray-800 text-gray-400">或使用以下方式登录</span>
+                <span className="px-2 bg-gray-800 text-gray-400">或者一键登录演示账户</span>
               </div>
             </div>
-
-            <div className="mt-6 grid grid-cols-3 gap-3">
+            <div className="mt-6">
               <button
-                onClick={() => handleSocialLogin('wechat')}
+                onClick={handleDemoLogin}
                 disabled={socialLoading !== ''}
                 className="w-full inline-flex justify-center py-2 px-4 border border-gray-600 rounded-lg shadow-sm bg-gray-700 text-sm font-medium text-gray-300 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {socialLoading === 'wechat' ? (
+                {socialLoading === 'demo' ? (
                   <div className="animate-spin h-5 w-5 border-2 border-gray-400 border-t-gray-200 rounded-full"></div>
                 ) : (
-                  <div className="w-5 h-5 bg-green-500 rounded-sm flex items-center justify-center">
-                    <span className="text-white text-xs font-bold">微</span>
-                  </div>
-                )}
-              </button>
-
-              <button
-                onClick={() => handleSocialLogin('qq')}
-                disabled={socialLoading !== ''}
-                className="w-full inline-flex justify-center py-2 px-4 border border-gray-600 rounded-lg shadow-sm bg-gray-700 text-sm font-medium text-gray-300 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {socialLoading === 'qq' ? (
-                  <div className="animate-spin h-5 w-5 border-2 border-gray-400 border-t-gray-200 rounded-full"></div>
-                ) : (
-                  <div className="h-5 w-5 bg-blue-500 rounded-sm flex items-center justify-center">
-                    <span className="text-white text-xs font-bold">Q</span>
-                  </div>
-                )}
-              </button>
-
-              <button
-                onClick={() => handleSocialLogin('phone')}
-                disabled={socialLoading !== ''}
-                className="w-full inline-flex justify-center py-2 px-4 border border-gray-600 rounded-lg shadow-sm bg-gray-700 text-sm font-medium text-gray-300 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {socialLoading === 'phone' ? (
-                  <div className="animate-spin h-5 w-5 border-2 border-gray-400 border-t-gray-200 rounded-full"></div>
-                ) : (
-                  <Smartphone className="h-5 w-5 text-gray-400" />
+                  <span className="text-white">一键登录演示账户</span>
                 )}
               </button>
             </div>

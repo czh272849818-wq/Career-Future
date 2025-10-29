@@ -7,6 +7,7 @@ const mammoth = require('mammoth');
 const pdfParse = require('pdf-parse');
 const WordExtractor = require('word-extractor');
 const Tesseract = require('tesseract.js');
+import { ensureDemoUser, createUser, verifyLogin, sanitizeUser, createToken, getUserData, addAssessment, upsertUserData } from './db.js';
 
 dotenv.config({ path: '.env.local' });
 
@@ -21,6 +22,85 @@ const API_URL = 'https://api.deepseek.com/v1/chat/completions';
 if (!API_KEY) {
   console.warn('[DeepSeek] Missing DEEPSEEK_API_KEY in environment');
 }
+
+// 初始化演示账户
+const demoUser = ensureDemoUser();
+
+// 认证与用户数据（按用户ID索引）
+app.post('/api/auth/register', (req, res) => {
+  try {
+    const { email = '', password = '', name = '' } = req.body || {};
+    if (!email || !password) return res.status(400).json({ error: '邮箱与密码为必填' });
+    const user = createUser({ email, password, name });
+    const token = createToken(user);
+    return res.json({ token, user: sanitizeUser(user) });
+  } catch (err) {
+    if (String(err?.message) === 'EMAIL_EXISTS') return res.status(409).json({ error: '邮箱已注册' });
+    console.error('[auth/register] error:', err);
+    return res.status(500).json({ error: '注册失败' });
+  }
+});
+
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { email = '', password = '' } = req.body || {};
+    if (!email || !password) return res.status(400).json({ error: '邮箱与密码为必填' });
+    const user = verifyLogin(email, password);
+    if (!user) return res.status(401).json({ error: '邮箱或密码错误' });
+    const token = createToken(user);
+    return res.json({ token, user: sanitizeUser(user) });
+  } catch (err) {
+    console.error('[auth/login] error:', err);
+    return res.status(500).json({ error: '登录失败' });
+  }
+});
+
+app.post('/api/auth/demo', (_req, res) => {
+  try {
+    const token = createToken(demoUser);
+    return res.json({ token, user: sanitizeUser(demoUser) });
+  } catch (err) {
+    console.error('[auth/demo] error:', err);
+    return res.status(500).json({ error: '演示登录失败' });
+  }
+});
+
+app.get('/api/users/:id/data', (req, res) => {
+  try {
+    const userId = req.params.id;
+    const data = getUserData(userId);
+    if (!data) return res.status(404).json({ error: '用户数据不存在' });
+    return res.json({ userId, data });
+  } catch (err) {
+    console.error('[users/data] error:', err);
+    return res.status(500).json({ error: '获取用户数据失败' });
+  }
+});
+
+app.post('/api/users/:id/assessments', (req, res) => {
+  try {
+    const userId = req.params.id;
+    const assessment = req.body || {};
+    if (!assessment || !assessment.id) return res.status(400).json({ error: 'assessment内容缺失' });
+    const saved = addAssessment(userId, assessment);
+    return res.json({ ok: true, saved });
+  } catch (err) {
+    console.error('[users/assessments] error:', err);
+    return res.status(500).json({ error: '保存测评结果失败' });
+  }
+});
+
+app.post('/api/users/:id/data', (req, res) => {
+  try {
+    const userId = req.params.id;
+    const patch = req.body || {};
+    const merged = upsertUserData(userId, patch);
+    return res.json({ ok: true, data: merged });
+  } catch (err) {
+    console.error('[users/data upsert] error:', err);
+    return res.status(500).json({ error: '更新用户数据失败' });
+  }
+});
 
 // 文件文本提取（支持 PDF / DOCX / DOC / TXT）
 app.post('/api/extract-text', async (req, res) => {
