@@ -125,8 +125,9 @@ export default async (req) => {
           console.log(`[extract-text] method=pdf fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
           return new Response(JSON.stringify({ text, method: 'pdf' }), { headers });
         } catch (pdfErr) {
-          console.warn('[PDF] pdf-parse failed:', pdfErr);
-          return new Response(JSON.stringify({ error: 'pdf parse failed', details: String(pdfErr) }), { status: 500, headers });
+          console.warn('[PDF] pdf-parse failed, final utf8 fallback:', pdfErr);
+          const text = buf.toString('utf-8');
+          return new Response(JSON.stringify({ text, method: 'pdf-fallback-utf8', warn: 'pdf parser unavailable' }), { headers });
         }
       }
     }
