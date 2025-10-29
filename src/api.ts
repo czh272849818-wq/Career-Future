@@ -24,8 +24,9 @@ export function apiUrl(path: string): string {
     }
   }
   if (path === '/api/deepseek/chat') {
+    // 重要：在 Netlify 生产环境优先走 Functions，避免 Edge 超时
     if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
-      return '/deepseek-chat';
+      return '/.netlify/functions/deepseek-chat';
     }
   }
   if (path === '/api/auth/register') {

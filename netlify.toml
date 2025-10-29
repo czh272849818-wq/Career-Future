@@ -16,6 +16,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/deepseek/chat"
+  to = "/.netlify/functions/deepseek-chat"
+  status = 200
+
+[[redirects]]
   from = "/api/auth/register"
   to = "/.netlify/functions/auth-register"
   status = 200
