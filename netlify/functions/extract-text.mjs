@@ -88,45 +88,45 @@ export default async (req) => {
       }
     }
 
-    // PDF
+    // PDF：优先使用 pdfreader（Node 纯文本提取），失败再尝试 pdf-parse
     if (lowerName.endsWith('.pdf') || mimeType.includes('pdf')) {
       try {
-        const pdfModule = await import('pdf-parse');
-        const pdfParse = pdfModule.default || pdfModule;
-        const data = await pdfParse(buf);
-        const text = String(data?.text || '').trim();
-        console.log(`[extract-text] method=pdf fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
-        return new Response(JSON.stringify({ text, method: 'pdf' }), { headers });
-      } catch (pdfErr) {
-        console.warn('[PDF] parse failed, fallback to pdfreader:', pdfErr);
+        const pdfreaderModule = await import('pdfreader');
+        const PdfReader = pdfreaderModule.PdfReader || pdfreaderModule.default?.PdfReader || pdfreaderModule?.default || pdfreaderModule;
+        const text = await new Promise((resolve, reject) => {
+          const rows = {};
+          try {
+            new PdfReader().parseBuffer(buf, (err, item) => {
+              if (err) return reject(err);
+              if (!item) {
+                const lines = Object.keys(rows)
+                  .sort((a, b) => parseFloat(a) - parseFloat(b))
+                  .map((y) => (rows[y] || []).map((i) => i.text).join(' '))
+                  .join('\n');
+                return resolve(lines.trim());
+              }
+              if (item.text) {
+                (rows[item.y] = rows[item.y] || []).push(item);
+              }
+            });
+          } catch (e) {
+            reject(e);
+          }
+        });
+        console.log(`[extract-text] method=pdfreader fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
+        return new Response(JSON.stringify({ text, method: 'pdfreader' }), { headers });
+      } catch (readerErr) {
+        console.warn('[PDF] pdfreader failed, try pdf-parse:', readerErr);
         try {
-          const pdfreaderModule = await import('pdfreader');
-          const PdfReader = pdfreaderModule.PdfReader || pdfreaderModule.default?.PdfReader || pdfreaderModule?.default || pdfreaderModule;
-          const text = await new Promise((resolve, reject) => {
-            const rows = {};
-            try {
-              new PdfReader().parseBuffer(buf, (err, item) => {
-                if (err) return reject(err);
-                if (!item) {
-                  const lines = Object.keys(rows)
-                    .sort((a, b) => parseFloat(a) - parseFloat(b))
-                    .map((y) => (rows[y] || []).map((i) => i.text).join(' '))
-                    .join('\n');
-                  return resolve(lines.trim());
-                }
-                if (item.text) {
-                  (rows[item.y] = rows[item.y] || []).push(item);
-                }
-              });
-            } catch (e) {
-              reject(e);
-            }
-          });
-          console.log(`[extract-text] method=pdfreader fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
-          return new Response(JSON.stringify({ text, method: 'pdfreader' }), { headers });
-        } catch (fallbackErr) {
-          console.warn('[PDF] pdfreader fallback failed:', fallbackErr);
-          return new Response(JSON.stringify({ error: 'pdf parse failed', details: String(fallbackErr) }), { status: 500, headers });
+          const pdfModule = await import('pdf-parse');
+          const pdfParse = pdfModule.default || pdfModule;
+          const data = await pdfParse(buf);
+          const text = String(data?.text || '').trim();
+          console.log(`[extract-text] method=pdf fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
+          return new Response(JSON.stringify({ text, method: 'pdf' }), { headers });
+        } catch (pdfErr) {
+          console.warn('[PDF] pdf-parse failed:', pdfErr);
+          return new Response(JSON.stringify({ error: 'pdf parse failed', details: String(pdfErr) }), { status: 500, headers });
         }
       }
     }
