@@ -25,8 +25,12 @@ const JobMatching = () => {
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
   const [filterCity, setFilterCity] = useState('');
   const [filterIndustry, setFilterIndustry] = useState('');
+  const [filterPosition, setFilterPosition] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [industries, setIndustries] = useState<string[]>([]);
+  const [positions, setPositions] = useState<string[]>([]);
+  const [taxonomyLoading, setTaxonomyLoading] = useState(false);
 
   // 模拟岗位数据（作为兜底）
   const mockJobs = [
@@ -84,8 +88,51 @@ const JobMatching = () => {
     }
   ];
 
-  // 调用 DeepSeek 生成岗位推荐
-  const fetchRecommendations = async () => {
+  // 拉取行业列表（DeepSeek Taxonomy）
+  useEffect(() => {
+    const loadIndustries = async () => {
+      try {
+        setTaxonomyLoading(true);
+        const resp = await fetch(apiUrl('/api/deepseek/taxonomy') + '?kind=industries');
+        const data = await resp.json().catch(() => ({}));
+        const list = Array.isArray(data?.industries) ? data.industries : [];
+        setIndustries(list);
+      } catch (e) {
+        console.warn('加载行业列表失败:', e);
+      } finally {
+        setTaxonomyLoading(false);
+      }
+    };
+    loadIndustries();
+  }, []);
+
+  // 根据已选行业拉取岗位列表（DeepSeek Taxonomy）
+  useEffect(() => {
+    const loadPositions = async () => {
+      if (!filterIndustry) {
+        setPositions([]);
+        return;
+      }
+      try {
+        setTaxonomyLoading(true);
+        const resp = await fetch(
+          apiUrl('/api/deepseek/taxonomy') + `?kind=positions&industry=${encodeURIComponent(filterIndustry)}`
+        );
+        const data = await resp.json().catch(() => ({}));
+        const list = Array.isArray(data?.positions) ? data.positions : [];
+        setPositions(list);
+      } catch (e) {
+        console.warn('加载岗位列表失败:', e);
+        setPositions([]);
+      } finally {
+        setTaxonomyLoading(false);
+      }
+    };
+    loadPositions();
+  }, [filterIndustry]);
+
+  // 调用 DeepSeek 生成岗位推荐（可融合行业/岗位提示）
+  const fetchRecommendations = async (opts?: { industry?: string; positionHints?: string[] }) => {
     setLoading(true);
     setError('');
     try {
@@ -132,8 +179,10 @@ const JobMatching = () => {
         `【所学专业】${major || '（未填写）'}\n` +
         `【测评分数】${JSON.stringify(scores)}\n` +
         `【优势特质】${traits.join('、') || '（未提取）'}\n` +
-        `【AI分析摘要】${trimmedAnalysis || '（无）'}\n\n` +
-        `请生成10个岗位推荐（贴合中国职场），并返回JSON数组。每项需包含匹配度、城市、行业、技能要求与简要描述，匹配理由要体现简历与测评的关联。`
+        `【AI分析摘要】${trimmedAnalysis || '（无）'}\n` +
+        `【指定行业】${opts?.industry || filterIndustry || '（未指定）'}\n` +
+        `【岗位词典提示】${(opts?.positionHints?.slice(0, 15) || positions.slice(0, 15)).join('、') || '（未指定）'}\n\n` +
+        `请生成10个岗位推荐（贴合中国职场），并返回JSON数组。每项需包含匹配度、城市、行业、技能要求与简要描述，匹配理由要体现简历与测评的关联。优先从“岗位词典提示”中选择或衍生相近岗位，若不适用再综合其他信息。`
       );
 
       const messages = [
@@ -176,10 +225,15 @@ const JobMatching = () => {
   };
 
   useEffect(() => {
-    // 根据测评结果生成岗位推荐
+    // 初次进入页面生成岗位推荐
     fetchRecommendations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 根据当前行业/岗位提示重新生成推荐
+  const regenerateWithIndustry = async () => {
+    await fetchRecommendations({ industry: filterIndustry, positionHints: positions });
+  };
 
   const handleSelectJob = (job: any) => {
     selectJob(job);
@@ -205,7 +259,8 @@ const JobMatching = () => {
   const filteredJobs = jobsSource.filter(job => {
     const cityMatch = !filterCity || job.location.includes(filterCity);
     const industryMatch = !filterIndustry || job.industry.includes(filterIndustry);
-    return cityMatch && industryMatch;
+    const positionMatch = !filterPosition || job.title.includes(filterPosition) || job.description.includes(filterPosition);
+    return cityMatch && industryMatch && positionMatch;
   });
 
   return (
@@ -263,14 +318,17 @@ const JobMatching = () => {
               <div>
                 <select
                   value={filterIndustry}
-                  onChange={(e) => setFilterIndustry(e.target.value)}
+                  onChange={(e) => {
+                    setFilterIndustry(e.target.value);
+                    setFilterPosition('');
+                  }}
                   className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-white"
                 >
                   <option value="">所有行业</option>
-                  <option value="互联网">互联网</option>
-                  <option value="人工智能">人工智能</option>
-                  <option value="电商">电商</option>
-                  <option value="生活服务">生活服务</option>
+                  {taxonomyLoading && <option value="">加载行业中...</option>}
+                  {industries.map((ind) => (
+                    <option key={ind} value={ind}>{ind}</option>
+                  ))}
                 </select>
               </div>
               <div className="flex items-center text-gray-300">
@@ -278,6 +336,40 @@ const JobMatching = () => {
               </div>
             </div>
           </div>
+
+          {/* Positions chips */}
+          {positions.length > 0 && (
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center space-x-2">
+                  <Search className="h-4 w-4 text-gray-400" />
+                  <span className="text-xs text-gray-400">快速筛选岗位（来自行业词典）</span>
+                </div>
+                <button
+                  onClick={regenerateWithIndustry}
+                  className="px-3 py-1 text-xs bg-purple-600 hover:bg-purple-500 text-white rounded-lg border border-purple-500"
+                >
+                  按当前行业刷新推荐
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {positions.slice(0, 24).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setFilterPosition(prev => prev === p ? '' : p)}
+                    className={
+                      `px-3 py-1 text-xs rounded-full border ` +
+                      (filterPosition === p
+                        ? 'bg-purple-700 border-purple-500 text-white'
+                        : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600')
+                    }
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Job List */}

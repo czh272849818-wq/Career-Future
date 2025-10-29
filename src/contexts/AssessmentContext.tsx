@@ -41,7 +41,7 @@ interface AssessmentContextType {
   answerQuestion: (questionId: string, answerId: string) => void;
   nextQuestion: () => void;
   previousQuestion: () => void;
-  completeAssessment: (aiAnalysis?: string) => AssessmentResult;
+  completeAssessment: (aiAnalysis?: string, override?: { scores?: Record<string, number>; traits?: string[]; recommendations?: string[] }) => AssessmentResult;
   getAssessmentHistory: () => AssessmentResult[];
   getIndustryPositions: () => Record<string, string[]>;
 }
@@ -627,7 +627,7 @@ export function AssessmentProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
-  const completeAssessment = (aiAnalysis?: string): AssessmentResult => {
+  const completeAssessment = (aiAnalysis?: string, override?: { scores?: Record<string, number>; traits?: string[]; recommendations?: string[] }): AssessmentResult => {
     // 基于答案的简单计分
     const traitCounts: Record<string, number> = {};
     for (const q of currentAssessment) {
@@ -676,28 +676,33 @@ export function AssessmentProvider({ children }: { children: React.ReactNode }) 
       .map(x => x.t);
   
     // 汇总分数（MBTI维度 + Top优势）
-    const scores: Record<string, number> = {
+    const baseScores: Record<string, number> = {
       ...mbtiScores,
       ...topGallup.reduce((acc, t) => ({ ...acc, [t]: gallupScores[t] }), {})
     };
   
     // 标签
-    const traits = [
+    const baseTraits = [
       `MBTI：${mbtiType}`,
       ...topGallup
     ];
   
     // 建议（基于维度的简单文案拼接）
-    const recs: string[] = [];
-    if (mbtiType.startsWith('E')) recs.push('外向倾向：适合团队合作与对外沟通岗位');
-    else recs.push('内向倾向：适合深度研究与专业技术岗位');
-    if (mbtiType.includes('N')) recs.push('直觉倾向：适合创新产品、战略规划类工作');
-    else recs.push('感觉倾向：适合运营执行、质量与流程相关岗位');
-    if (mbtiType.includes('T')) recs.push('思考倾向：适合工程、数据分析与逻辑决策场景');
-    else recs.push('情感倾向：适合用户体验、HR/培训与客户成功类岗位');
-    if (mbtiType.includes('J')) recs.push('判断倾向：适合项目管理与流程规范型工作');
-    else recs.push('知觉倾向：适合探索型岗位与快节奏变化环境');
-    if (topGallup[0]) recs.push(`你的优势偏好：${topGallup[0]}，建议在岗位中强化相关场景与职责。`);
+    const baseRecs: string[] = [];
+    if (mbtiType.startsWith('E')) baseRecs.push('外向倾向：适合团队合作与对外沟通岗位');
+    else baseRecs.push('内向倾向：适合深度研究与专业技术岗位');
+    if (mbtiType.includes('N')) baseRecs.push('直觉倾向：适合创新产品、战略规划类工作');
+    else baseRecs.push('感觉倾向：适合运营执行、质量与流程相关岗位');
+    if (mbtiType.includes('T')) baseRecs.push('思考倾向：适合工程、数据分析与逻辑决策场景');
+    else baseRecs.push('情感倾向：适合用户体验、HR/培训与客户成功类岗位');
+    if (mbtiType.includes('J')) baseRecs.push('判断倾向：适合项目管理与流程规范型工作');
+    else baseRecs.push('知觉倾向：适合探索型岗位与快节奏变化环境');
+    if (topGallup[0]) baseRecs.push(`你的优势偏好：${topGallup[0]}，建议在岗位中强化相关场景与职责。`);
+
+    // AI 覆盖（若提供则优先使用）
+    const scores = override?.scores && Object.keys(override.scores).length ? override.scores : baseScores;
+    const traits = override?.traits && override.traits.length ? override.traits : baseTraits;
+    const recs = override?.recommendations && override.recommendations.length ? override.recommendations : baseRecs;
   
     const result: AssessmentResult = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,

@@ -48,6 +48,12 @@ const Assessment = () => {
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [aiAnalysisText, setAiAnalysisText] = useState('');
   const [aiError, setAiError] = useState('');
+  // 结构化分析（JSON）结果：scores/traits/recommendations
+  const [aiStructured, setAiStructured] = useState<{
+    scores?: Record<string, number>;
+    traits?: string[];
+    recommendations?: string[];
+  } | null>(null);
   // 新增：题库优化提示
   // 已在顶部声明 showOptimizedNotice，避免重复
   
@@ -513,6 +519,7 @@ const Assessment = () => {
       setAiAnalyzing(true);
       setAiError('');
       setAiAnalysisText('');
+      setAiStructured(null);
 
       // 在分析前确保简历已解析；若未解析则尝试解析
       let finalResumeText = resumeText || '';
@@ -654,6 +661,69 @@ const Assessment = () => {
           setAiError('AI分析失败，请稍后重试');
         }
       }
+
+      // 追加一次非流式结构化 JSON 获取：用于覆盖分数/标签/建议
+      try {
+        const jsonUser = `请将以上资料转换为一个严格合法的 JSON 对象，仅输出 JSON（不要任何解释或 Markdown）。` +
+          `\nJSON schema: {"scores": {"<维度>": 0-100整数}, "traits": ["标签1", "标签2", ...], "recommendations": ["建议1", "建议2", ...]}.` +
+          `\n要求：\n- 根据测评与简历，从 MBTI 四维(E/I, S/N, T/F, J/P)、以及盖洛普优势(如 Achiever/Analytical/Strategic 等)等角度给出得分，范围 0-100，取整。` +
+          `\n- traits 为 3-6 个简明标签，包含 MBTI 类型(如 "MBTI：ESTJ")与前述优势词；` +
+          `\n- recommendations 输出 4-6 条中文建议句子，面向岗位发展与技能提升，避免过长。` +
+          `\n- 如果行业测评已选择，则结合意向行业/岗位：${selectedIndustryLocal || '未选'} / ${selectedPositionLocal || '未选'}。`;
+
+        const messagesJson = [
+          { role: 'system', content: '你是资深中文职业分析顾问，请严格按要求只输出一个合法的 JSON 对象。' },
+          { role: 'user', content: `${userContent}\n\n${jsonUser}` }
+        ];
+
+        const respJson = await fetch(apiUrl('/api/deepseek/chat'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: messagesJson, model: DEFAULT_LLM_MODEL, temperature: 0.2, stream: false })
+        });
+        const dataJson = await respJson.json();
+        let content = dataJson?.choices?.[0]?.message?.content || '';
+        // 尝试安全解析：截取第一个 { 到最后一个 }
+        const firstIdx = content.indexOf('{');
+        const lastIdx = content.lastIndexOf('}');
+        if (firstIdx >= 0 && lastIdx > firstIdx) {
+          content = content.slice(firstIdx, lastIdx + 1);
+        }
+        try {
+          const parsed = JSON.parse(content);
+          const normalized: {
+            scores?: Record<string, number>;
+            traits?: string[];
+            recommendations?: string[];
+          } = {};
+          if (parsed && typeof parsed === 'object') {
+            if (parsed.scores && typeof parsed.scores === 'object') {
+              const sc: Record<string, number> = {};
+              for (const k of Object.keys(parsed.scores)) {
+                const v = Number(parsed.scores[k]);
+                if (!Number.isNaN(v)) sc[k] = Math.max(0, Math.min(100, Math.round(v)));
+              }
+              if (Object.keys(sc).length) normalized.scores = sc;
+            }
+            if (Array.isArray(parsed.traits)) {
+              const ts = parsed.traits.map((x: any) => String(x)).filter(Boolean);
+              if (ts.length) normalized.traits = ts;
+            }
+            if (Array.isArray(parsed.recommendations)) {
+              const rs = parsed.recommendations.map((x: any) => String(x)).filter(Boolean);
+              if (rs.length) normalized.recommendations = rs;
+            }
+          }
+          if (normalized.scores || normalized.traits || normalized.recommendations) {
+            setAiStructured(normalized);
+          }
+        } catch (jsonErr) {
+          // 忽略结构化失败，不影响文本分析展示
+          console.warn('[AI Structured] parse failed:', jsonErr);
+        }
+      } catch (fetchJsonErr) {
+        console.warn('[AI Structured] fetch failed:', fetchJsonErr);
+      }
     } catch (err) {
       console.error('[AI Analyze] error:', err);
       setAiError('分析过程出现错误');
@@ -663,7 +733,11 @@ const Assessment = () => {
   };
 
   const handleCompleteAssessment = () => {
-    const result = completeAssessment(aiAnalysisText || undefined);
+    const override: { scores?: Record<string, number>; traits?: string[]; recommendations?: string[] } = {};
+    if (aiStructured?.scores && Object.keys(aiStructured.scores).length) override.scores = aiStructured.scores;
+    if (aiStructured?.traits && aiStructured.traits.length) override.traits = aiStructured.traits;
+    if (aiStructured?.recommendations && aiStructured.recommendations.length) override.recommendations = aiStructured.recommendations;
+    const result = completeAssessment(aiAnalysisText || undefined, Object.keys(override).length ? override : undefined);
     setCurrentResult(result);
     
     // 更新工作流程数据（包含简历文本与测评详情）
@@ -1120,6 +1194,12 @@ const Assessment = () => {
                     >
                       {aiAnalysisText}
                     </ReactMarkdown>
+                  )}
+                  {aiStructured && (
+                    <div className="mt-3 text-xs text-gray-300">
+                      <p>结构化结果已生成，可用于覆盖报告：</p>
+                      <p>维度数：{Object.keys(aiStructured.scores || {}).length}，标签数：{(aiStructured.traits || []).length}，建议数：{(aiStructured.recommendations || []).length}</p>
+                    </div>
                   )}
                 </div>
               )}
