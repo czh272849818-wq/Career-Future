@@ -62,6 +62,24 @@ npm run build && npm run preview:host
 - 浏览器报 `Failed to fetch` 或 `net::ERR_ABORTED` 多为后端未启动或密钥缺失。
 - 若后端依赖较重（如 `tesseract.js`），建议使用专用 Node 服务，而非函数环境。
 
+### CI 自动部署（GitHub Actions + Netlify）
+仓库已内置工作流：`.github/workflows/netlify-deploy.yml`，在推送到 `main` 时自动构建并部署到 Netlify。
+
+1) 在 GitHub 仓库 Settings → Secrets and variables → Actions 添加：
+- `NETLIFY_AUTH_TOKEN`：Netlify 个人访问令牌
+- `NETLIFY_SITE_ID`：Netlify 站点 ID（在 Netlify 站点设置中可见）
+- `DEEPSEEK_API_KEY`：DeepSeek 密钥（可选，用于通过 CLI 写入站点环境变量）
+
+2) 触发部署：
+- 推送到 `main` 或在 Actions 中手动运行工作流（`workflow_dispatch`）。
+- 工作流会使用 `netlify deploy --build --prod` 完成构建与生产部署。
+
+3) 验证 Edge Functions 与接口：
+- 行业列表：`GET /api/deepseek/taxonomy?kind=industries`
+- 岗位列表：`GET /api/deepseek/taxonomy?kind=positions&industry=互联网`
+
+提示：也可在 Netlify 控制台中绑定 GitHub 仓库进行持续部署；请确保在 Netlify 站点的 Environment variables 中配置 `DEEPSEEK_API_KEY`，以便 Edge Function 读取。
+
 ## AI 职业规划师（流式输出）
 - `src/llm/config.ts` 设定 `DEFAULT_STREAM = true`，默认启用流式。
 - `src/contexts/ChatContext.tsx` 实现 SSE 解析与占位消息逐字更新，首个分片到达时关闭输入指示点，提升体验。

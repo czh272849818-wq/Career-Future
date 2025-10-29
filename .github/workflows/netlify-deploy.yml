@@ -1,0 +1,45 @@
+name: Deploy to Netlify
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: netlify-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 可选：通过 CLI 保障站点环境变量存在（需要 GitHub Secrets）
+      - name: Ensure Netlify env (DEEPSEEK_API_KEY)
+        if: ${{ secrets.DEEPSEEK_API_KEY && secrets.NETLIFY_AUTH_TOKEN && secrets.NETLIFY_SITE_ID }}
+        uses: netlify/actions/cli@v4.0.0
+        with:
+          args: env:set DEEPSEEK_API_KEY ${{ secrets.DEEPSEEK_API_KEY }} --site ${{ secrets.NETLIFY_SITE_ID }}
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+
+      - name: Deploy to Netlify (build + prod)
+        uses: netlify/actions/cli@v4.0.0
+        with:
+          args: deploy --build --prod --message "GitHub Actions deploy"
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
