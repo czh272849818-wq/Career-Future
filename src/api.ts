@@ -1,10 +1,40 @@
 export const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
-export function apiUrl(path: string): string {
-  if (API_BASE) return `${API_BASE.replace(/\/$/, '')}${path}`;
-  // 本地开发走 Vite 代理，生产环境优先用 Edge Functions
-  if (path === '/api/deepseek/chat') {
-    return '/deepseek-chat';
+function isNetlifyDomain(base?: string): boolean {
+  try {
+    if (base) {
+      const host = new URL(base).hostname;
+      if (/netlify\.app$/i.test(host)) return true;
+    }
+  } catch {}
+  if (typeof window !== 'undefined') {
+    if (/netlify\.app$/i.test(window.location.hostname)) return true;
   }
+  return false;
+}
+
+export function apiUrl(path: string): string {
+  const base = (API_BASE || '').replace(/\/$/, '');
+  const onNetlify = isNetlifyDomain(base);
+
+  // 核心：在 Netlify 域上强制使用函数/边缘函数路径，避免 SPA 兜底吞掉 /api/*
+  if (path === '/api/extract-text') {
+    if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
+      return '/.netlify/functions/extract-text';
+    }
+  }
+  if (path === '/api/deepseek/chat') {
+    if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
+      return '/deepseek-chat';
+    }
+  }
+
+  // 非 Netlify 且配置了后端基础地址时，拼接为绝对路径
+  if (base && !onNetlify) return `${base}${path}`;
+
+  // 开发环境保留相对路径，走 Vite 代理
+  if (import.meta.env && import.meta.env.DEV) return path;
+
+  // 其他情况返回原始路径
   return path;
 }

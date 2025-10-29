@@ -57,6 +57,25 @@ const Assessment = () => {
   const [ocrPdfLoading, setOcrPdfLoading] = useState<boolean>(false);
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+
+  // 在 Netlify 域上若相对路径返回 HTML/404，则自动改用函数路径
+  const postExtractText = async (payload: { fileName: string; mimeType: string; dataBase64: string }) => {
+    const init: RequestInit = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    };
+    let resp = await fetch(apiUrl('/api/extract-text'), init);
+    const ct = resp.headers?.get('content-type') || '';
+    const looksHtml = ct.includes('text/html');
+    const onNetlify = typeof window !== 'undefined' && /netlify\.app$/i.test(window.location.hostname);
+    if ((!resp.ok || looksHtml) && onNetlify) {
+      try {
+        resp = await fetch('/.netlify/functions/extract-text', init);
+      } catch {}
+    }
+    return resp;
+  };
   const { setCurrentStep, updateAssessmentData } = useWorkflow();
   const {
     currentAssessment,
@@ -163,11 +182,7 @@ const Assessment = () => {
           reader.onerror = reject;
           reader.readAsDataURL(file);
         });
-        const resp = await fetch(apiUrl('/api/extract-text'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileName: file.name, mimeType: file.type, dataBase64: base64 })
-        });
+        const resp = await postExtractText({ fileName: file.name, mimeType: file.type, dataBase64: base64 });
         if (!resp.ok) {
           // 后端解析失败，前端自动回退：先客户端文本提取，再OCR
           const clientText = await tryPdfTextClient();
@@ -214,8 +229,32 @@ const Assessment = () => {
     }
   };
 
+  async function tryPdfTextClient(): Promise<string | null> {
+    try {
+      if (!additionalData.resume) return null;
+      // @ts-ignore
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const file = additionalData.resume;
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+      let fullText = '';
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const textContent: any = await page.getTextContent();
+        const pageText = (textContent.items || []).map((it: any) => String(it?.str || '')).join(' ');
+        fullText += `\n${pageText}`;
+      }
+
+      return fullText.trim().length > 0 ? fullText : null;
+    } catch (err) {
+      console.warn('[PDF-Client] error:', err);
+      return null;
+    }
+  }
+
   // 客户端PDF→图片→OCR识别（用于扫描件PDF）
-  const tryOcrPdfClient = async (): Promise<string | null> => {
+  async function tryOcrPdfClient(): Promise<string | null> {
     try {
       if (!additionalData.resume) return null;
       setOcrPdfLoading(true);
@@ -240,14 +279,10 @@ const Assessment = () => {
         const dataUrl = canvas.toDataURL('image/png');
         const base64Data = dataUrl.split(',')[1];
 
-        const resp = await fetch(apiUrl('/api/extract-text'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fileName: `${file.name}#page-${pageNum}.png`,
-            mimeType: 'image/png',
-            dataBase64: base64Data,
-          }),
+        const resp = await postExtractText({
+          fileName: `${file.name}#page-${pageNum}.png`,
+          mimeType: 'image/png',
+          dataBase64: base64Data,
         });
         const json = await resp.json();
         if (json?.text) fullText += `\n${json.text}`;
@@ -266,7 +301,7 @@ const Assessment = () => {
     } finally {
       setOcrPdfLoading(false);
     }
-  };
+  }
 
   // 新增：在题库生成完成前的门禁界面
   if (selectedType && isGenerating) {
@@ -369,11 +404,7 @@ const Assessment = () => {
             reader.onerror = reject;
             reader.readAsDataURL(file);
           });
-          const resp = await fetch(apiUrl('/api/extract-text'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileName: file.name, mimeType: file.type, dataBase64: base64 })
-          });
+          const resp = await postExtractText({ fileName: file.name, mimeType: file.type, dataBase64: base64 });
           const data = await resp.json();
           finalResumeText = String(data?.text || '');
           setResumeText(finalResumeText.slice(0, 12000));

@@ -100,10 +100,10 @@ const JobMatching = () => {
           reader.readAsDataURL(file);
         });
         try {
-          const resp = await fetch('/api/extract-text', {
+          const resp = await fetch(apiUrl('/api/extract-text'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filename: file.name, fileContentBase64: base64 })
+            body: JSON.stringify({ fileName: file.name, mimeType: file.type, dataBase64: base64 })
           });
           const data = await resp.json();
           resumeText = data.text || '';

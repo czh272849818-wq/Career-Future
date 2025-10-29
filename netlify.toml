@@ -11,6 +11,11 @@
   function = "deepseek-chat"
 
 [[redirects]]
+  from = "/api/extract-text"
+  to = "/.netlify/functions/extract-text"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

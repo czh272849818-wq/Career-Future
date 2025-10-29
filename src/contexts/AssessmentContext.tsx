@@ -389,19 +389,22 @@ const generateQuestionsWithDeepSeek = async (params: { type: 'general' | 'indust
     const target = params.type === 'general'
       ? '通用职业测评（覆盖性格、能力、兴趣、价值观）'
       : `行业专项测评（行业：${params.industry || ''}，岗位：${params.position || ''}）`;
-    const user = `请生成${target}的单选题，共12题。保证id短且唯一；每题4个选项；中文输出；贴合中国职场语境。仅返回JSON数组。`;
+    const user = `请生成${target}的单选题，共8题。保证id短且唯一；每题4个选项；中文输出；贴合中国职场语境。仅返回JSON数组。`;
 
     const messages = [
       { role: 'system', content: sys },
       { role: 'user', content: user }
     ];
 
+    // 降低温度以提升确定性与速度
+    const fastTemperature = Math.min(0.3, DEFAULT_TEMPERATURE);
+
     // 1) 尝试流式，快速拿到首字节并避免平台超时
     try {
       const resp = await fetch(apiUrl('/api/deepseek/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, model: DEFAULT_LLM_MODEL, temperature: DEFAULT_TEMPERATURE, stream: true })
+        body: JSON.stringify({ messages, model: DEFAULT_LLM_MODEL, temperature: fastTemperature, stream: true })
       });
       if (!resp.ok || !resp.body) throw new Error(await resp.text());
       const reader = resp.body.getReader();
@@ -448,13 +451,14 @@ const generateQuestionsWithDeepSeek = async (params: { type: 'general' | 'indust
       })).filter(q => q.question && q.options.length >= 2);
 
       if (!normalized.length) throw new Error('No questions generated');
-      return normalized;
+      // 强制截断为8题，避免模型返回超量
+      return normalized.slice(0, 8);
     } catch (streamErr) {
       // 2) 流式失败则回退到非流式
       const resp = await fetch(apiUrl('/api/deepseek/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, model: DEFAULT_LLM_MODEL, temperature: DEFAULT_TEMPERATURE, stream: false })
+        body: JSON.stringify({ messages, model: DEFAULT_LLM_MODEL, temperature: fastTemperature, stream: false })
       });
       if (!resp.ok) throw new Error(await resp.text());
       const data = await resp.json();
@@ -479,7 +483,8 @@ const generateQuestionsWithDeepSeek = async (params: { type: 'general' | 'indust
       })).filter(q => q.question && q.options.length >= 2);
 
       if (!normalized.length) throw new Error('No questions generated');
-      return normalized;
+      // 强制截断为8题，避免模型返回超量
+      return normalized.slice(0, 8);
     }
   } catch (e) {
     console.warn('[DeepSeek] question generation failed:', e);
@@ -499,6 +504,30 @@ export function AssessmentProvider({ children }: { children: React.ReactNode }) 
   const [lastQuestionSource, setLastQuestionSource] = useState<'initial' | 'deepseek'>('initial');
   const [generationError, setGenerationError] = useState<string | null>(null);
 
+  // 轻量缓存：按类型+行业+岗位缓存生成结果（本地 6 小时）
+  const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+  const makeCacheKey = (type: 'general' | 'industry', industry?: string, position?: string) =>
+    `assessment_cache_v1:${type}:${industry || ''}:${position || ''}`;
+  const loadCache = (key: string): AssessmentQuestion[] | null => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (!obj || !Array.isArray(obj.data)) return null;
+      const ts = Number(obj.ts || 0);
+      if (!ts || Date.now() - ts > CACHE_TTL_MS) return null;
+      // 统一保证最多8题（兼容历史缓存可能为12题的情况）
+      return (obj.data as AssessmentQuestion[]).slice(0, 8);
+    } catch {
+      return null;
+    }
+  };
+  const saveCache = (key: string, data: AssessmentQuestion[]) => {
+    try {
+      localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data }));
+    } catch {}
+  };
+
   const startAssessment = (type: 'general' | 'industry', industry?: string, position?: string) => {
     // 记录选择状态
     if (type === 'industry' && industry && position) {
@@ -513,29 +542,67 @@ export function AssessmentProvider({ children }: { children: React.ReactNode }) 
     setCurrentQuestionIndex(0);
     setAnswers({});
 
-    // 新逻辑：不再立即使用本地题库，先等待AI题库生成
+    // 新逻辑：优先读取缓存，若存在则立即可答；并在后台刷新缓存
     setCurrentAssessment([]);
-    setLastQuestionSource('initial');
     setGenerationError(null);
+    const cacheKey = makeCacheKey(type, industry, position);
+    const cached = loadCache(cacheKey);
+    if (cached && cached.length > 0) {
+      setCurrentAssessment(cached);
+      setLastQuestionSource('deepseek');
+      setIsGenerating(false); // 立即进入作答，不阻塞
 
-    // 前台等待生成
-    setIsGenerating(true);
-    (async () => {
-      try {
-        const qs = await generateQuestionsWithDeepSeek({ type, industry, position });
-        if (Array.isArray(qs) && qs.length > 0) {
-          setCurrentAssessment(qs);
-          setLastQuestionSource('deepseek');
-        } else {
-          setGenerationError('AI题库生成失败，请稍后重试');
+      // 后台刷新但不打断当前答题（仅更新缓存）
+      (async () => {
+        try {
+          const qs = await generateQuestionsWithDeepSeek({ type, industry, position });
+          if (Array.isArray(qs) && qs.length > 0) {
+            saveCache(cacheKey, qs);
+            // 不更新 currentAssessment，避免中途换题
+          }
+        } catch (e) {
+          console.warn('[Assessment] background refresh failed:', e);
         }
-      } catch (e) {
-        console.warn('[Assessment] DeepSeek generation failed:', e);
-        setGenerationError('AI题库生成失败，请稍后重试');
-      } finally {
-        setIsGenerating(false);
-      }
-    })();
+      })();
+    } else {
+      // 无缓存：正常生成并展示
+      setLastQuestionSource('initial');
+      setIsGenerating(true);
+      (async () => {
+        try {
+          const qs = await generateQuestionsWithDeepSeek({ type, industry, position });
+          if (Array.isArray(qs) && qs.length > 0) {
+            setCurrentAssessment(qs);
+            setLastQuestionSource('deepseek');
+            saveCache(cacheKey, qs);
+          } else {
+            setGenerationError('AI题库生成失败，请稍后重试');
+          }
+        } catch (e) {
+          console.warn('[Assessment] DeepSeek generation failed:', e);
+          // 回退到本地题库并写入缓存，确保二次进入“秒进”
+          try {
+            const fallbackAll = type === 'industry'
+              ? getIndustryQuestions(industry || '', position || '')
+              : mockQuestions;
+            const fallback8 = fallbackAll.slice(0, 8);
+            if (fallback8.length > 0) {
+              setCurrentAssessment(fallback8);
+              setLastQuestionSource('initial');
+              saveCache(cacheKey, fallback8);
+              setGenerationError('AI题库生成失败，已使用本地题库');
+            } else {
+              setGenerationError('AI题库生成失败，请稍后重试');
+            }
+          } catch (fallbackErr) {
+            console.warn('[Assessment] fallback failed:', fallbackErr);
+            setGenerationError('AI题库生成失败，请稍后重试');
+          }
+        } finally {
+          setIsGenerating(false);
+        }
+      })();
+    }
   };
 
   const answerQuestion = (questionId: string, answerId: string) => {
