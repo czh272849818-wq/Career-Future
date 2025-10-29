@@ -1,2 +1,5 @@
 /api/extract-text /.netlify/functions/extract-text 200
+/api/auth/register /.netlify/functions/auth-register 200
+/api/auth/login /.netlify/functions/auth-login 200
+/api/auth/demo /.netlify/functions/auth-demo 200
 /* /index.html 200
