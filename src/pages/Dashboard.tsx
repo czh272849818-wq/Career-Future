@@ -1,299 +1,190 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { 
-  BarChart3, 
-  TrendingUp, 
-  FileText, 
-  Target, 
-  Clock, 
-  Award,
+import {
   ArrowRight,
-  Calendar,
-  Activity
+  BarChart3,
+  Briefcase,
+  CheckCircle,
+  Clock,
+  FileText,
+  Radar,
+  Target,
+  TrendingUp,
+  Video
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useAssessment } from '../contexts/AssessmentContext';
+import { useWorkflow } from '../contexts/WorkflowContext';
 import BackButton from '../components/ui/BackButton';
 
 const Dashboard = () => {
   const { user } = useAuth();
   const { getAssessmentHistory } = useAssessment();
-  
+  const { assessmentData, recommendedJobs, selectedJob, optimizedResume, careerPlan } = useWorkflow();
+
   const assessmentHistory = getAssessmentHistory();
   const latestAssessment = assessmentHistory[0];
+  const hasAssessment = Boolean(latestAssessment || assessmentData.completedAt);
+  const hasJobs = recommendedJobs.length > 0;
+  const hasResumeSignal = Boolean(optimizedResume || assessmentData.resumeText || assessmentData.resume);
+  const hasCareerPlan = Boolean(careerPlan);
+  const completionItems = [hasAssessment, hasJobs, Boolean(selectedJob), hasResumeSignal, hasCareerPlan];
+  const completion = Math.round((completionItems.filter(Boolean).length / completionItems.length) * 100);
 
-  const quickActions = [
+  const nextAction = !hasAssessment
+    ? { title: '先完成职业测评', desc: '建立职业画像，后续岗位、简历和面试才有个性化依据。', href: '/assessment', cta: '开始测评' }
+    : !hasJobs
+      ? { title: '生成岗位推荐', desc: '把测评结果转成可投递岗位池，筛出最值得投入的方向。', href: '/jobs', cta: '查看岗位' }
+      : !selectedJob
+        ? { title: '选择一个目标岗位', desc: '先聚焦一个岗位，才能做针对性简历和面试训练。', href: '/jobs', cta: '选择岗位' }
+        : !hasResumeSignal
+          ? { title: '优化目标岗位简历', desc: '对照 JD 找关键词缺口，提升 ATS 通过率和面试邀约率。', href: '/resume', cta: '优化简历' }
+          : { title: '进入面试训练', desc: '用目标岗位问题训练表达、案例和追问应对。', href: '/interview', cta: '开始面试' };
+
+  const growthSystem = [
     {
-      title: '职业测评',
-      description: '深度了解职业潜能',
-      icon: <BarChart3 className="h-6 w-6" />,
+      title: '职业画像',
+      desc: hasAssessment ? '已形成测评基础' : '尚未开始',
       href: '/assessment',
-      color: 'from-blue-500 to-blue-600'
+      icon: <Radar className="h-5 w-5" />,
+      done: hasAssessment
     },
     {
-      title: '简历优化',
-      description: '提升简历竞争力',
-      icon: <FileText className="h-6 w-6" />,
+      title: '岗位策略',
+      desc: hasJobs ? `${recommendedJobs.length} 个推荐岗位` : '等待生成岗位池',
+      href: '/jobs',
+      icon: <Briefcase className="h-5 w-5" />,
+      done: hasJobs
+    },
+    {
+      title: '简历转化',
+      desc: hasResumeSignal ? '已有简历优化信号' : '等待目标岗位与简历',
       href: '/resume',
-      color: 'from-purple-500 to-purple-600'
+      icon: <FileText className="h-5 w-5" />,
+      done: hasResumeSignal
     },
     {
-      title: '面试模拟',
-      description: '提升面试表现',
-      icon: <Target className="h-6 w-6" />,
+      title: '面试训练',
+      desc: selectedJob ? `围绕 ${selectedJob.title}` : '先选择目标岗位',
       href: '/interview',
-      color: 'from-green-500 to-green-600'
+      icon: <Video className="h-5 w-5" />,
+      done: false
     }
   ];
 
-  const recentActivities = [
-    {
-      type: 'assessment',
-      title: '完成了通用职业测评',
-      time: '2小时前',
-      icon: <BarChart3 className="h-4 w-4" />
-    },
-    {
-      type: 'resume',
-      title: '上传了新的简历文件',
-      time: '1天前',
-      icon: <FileText className="h-4 w-4" />
-    },
-    {
-      type: 'interview',
-      title: '完成产品经理模拟面试',
-      time: '2天前',
-      icon: <Target className="h-4 w-4" />
-    }
+  const evidence = [
+    latestAssessment ? `最近测评：${latestAssessment.completedAt.toLocaleDateString()}` : '暂无测评记录',
+    selectedJob ? `目标岗位：${selectedJob.title}` : '尚未锁定目标岗位',
+    assessmentData.major ? `专业背景：${assessmentData.major}` : '专业背景未填写',
+    assessmentData.traits?.length ? `核心标签：${assessmentData.traits.slice(0, 3).join('、')}` : '职业标签待生成'
   ];
 
   return (
     <div className="min-h-screen bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <div className="mb-4">
           <BackButton />
         </div>
-      <div className="max-w-7xl mx-auto">
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-8 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-bold mb-2">
-                  欢迎回来，{user?.name}！
-                </h1>
-                <p className="text-blue-100 mb-4">
-                  继续你的职业发展之旅，让AI助力你的每一步成长
-                </p>
-                <div className="flex items-center text-blue-100">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  <span className="text-sm">
-                    注册时间：{user?.registeredAt ? new Date(user.registeredAt).toLocaleDateString() : '未知'}
-                  </span>
+
+        <section className="relative overflow-hidden rounded-3xl border border-gray-700 bg-gray-800/60 p-8 shadow-2xl">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.18),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.16),transparent_36%)]" />
+          <div className="relative grid gap-8 lg:grid-cols-[1.4fr_0.8fr] lg:items-center">
+            <div>
+              <p className="mb-3 text-sm font-semibold uppercase tracking-[0.3em] text-emerald-300">Career Growth OS</p>
+              <h1 className="text-4xl font-bold text-white md:text-5xl">
+                {user?.name ? `${user.name}，` : ''}把职业规划变成可执行系统
+              </h1>
+              <p className="mt-4 max-w-2xl text-lg leading-8 text-gray-300">
+                你的产品不应该只给建议，而要把测评、岗位、简历、面试和行动计划串成闭环。当前进度 {completion}%。
+              </p>
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  to={nextAction.href}
+                  className="inline-flex items-center justify-center rounded-xl bg-emerald-500 px-6 py-3 font-semibold text-gray-950 transition hover:bg-emerald-400"
+                >
+                  {nextAction.cta}
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+                <Link
+                  to="/ai-chat"
+                  className="inline-flex items-center justify-center rounded-xl border border-gray-600 px-6 py-3 font-semibold text-gray-200 transition hover:border-gray-400 hover:bg-gray-700"
+                >
+                  咨询 AI 职业规划师
+                </Link>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-700 bg-gray-950/50 p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <span className="text-sm text-gray-400">当前最高优先级</span>
+                <Target className="h-5 w-5 text-emerald-300" />
+              </div>
+              <h2 className="text-2xl font-bold text-white">{nextAction.title}</h2>
+              <p className="mt-3 text-gray-300">{nextAction.desc}</p>
+              <div className="mt-6 h-2 rounded-full bg-gray-700">
+                <div className="h-2 rounded-full bg-gradient-to-r from-emerald-400 to-blue-400" style={{ width: `${completion}%` }} />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-8 grid gap-6 md:grid-cols-4">
+          {growthSystem.map((item) => (
+            <Link
+              key={item.title}
+              to={item.href}
+              className="rounded-2xl border border-gray-700 bg-gray-800/50 p-5 transition hover:-translate-y-1 hover:border-emerald-400/60 hover:bg-gray-800"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <div className="rounded-xl bg-gray-700 p-3 text-emerald-300">{item.icon}</div>
+                {item.done ? <CheckCircle className="h-5 w-5 text-emerald-400" /> : <Clock className="h-5 w-5 text-gray-500" />}
+              </div>
+              <h3 className="text-lg font-bold text-white">{item.title}</h3>
+              <p className="mt-2 text-sm text-gray-400">{item.desc}</p>
+            </Link>
+          ))}
+        </section>
+
+        <section className="mt-8 grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6">
+            <div className="mb-6 flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-white">决策证据</h2>
+              <BarChart3 className="h-6 w-6 text-blue-300" />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {evidence.map((item) => (
+                <div key={item} className="rounded-xl border border-gray-700 bg-gray-900/60 p-4 text-gray-300">
+                  {item}
                 </div>
-              </div>
-              <div className="hidden sm:block">
-                <div className="w-24 h-24 bg-white/20 rounded-full flex items-center justify-center">
-                  {user?.avatar ? (
-                    <img
-                      src={user.avatar}
-                      alt={user.name}
-                      className="w-20 h-20 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-20 h-20 bg-white/30 rounded-full flex items-center justify-center">
-                      <span className="text-2xl font-bold">{user?.name?.charAt(0)}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
+              ))}
             </div>
-          </div>
-        </div>
-
-        {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">完成测评</p>
-                <p className="text-2xl font-bold text-gray-900">{assessmentHistory.length}</p>
-              </div>
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <BarChart3 className="h-6 w-6 text-blue-600" />
-              </div>
-            </div>
-            <div className="mt-2 flex items-center text-sm text-green-600">
-              <TrendingUp className="h-4 w-4 mr-1" />
-              <span>持续提升中</span>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">简历优化</p>
-                <p className="text-2xl font-bold text-gray-900">3</p>
-              </div>
-              <div className="p-3 bg-purple-100 rounded-lg">
-                <FileText className="h-6 w-6 text-purple-600" />
-              </div>
-            </div>
-            <div className="mt-2 flex items-center text-sm text-blue-600">
-              <Award className="h-4 w-4 mr-1" />
-              <span>竞争力提升</span>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">面试模拟</p>
-                <p className="text-2xl font-bold text-gray-900">7</p>
-              </div>
-              <div className="p-3 bg-green-100 rounded-lg">
-                <Target className="h-6 w-6 text-green-600" />
-              </div>
-            </div>
-            <div className="mt-2 flex items-center text-sm text-orange-600">
-              <Activity className="h-4 w-4 mr-1" />
-              <span>表现优异</span>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">岗位匹配</p>
-                <p className="text-2xl font-bold text-gray-900">12</p>
-              </div>
-              <div className="p-3 bg-orange-100 rounded-lg">
-                <Target className="h-6 w-6 text-orange-600" />
-              </div>
-            </div>
-            <div className="mt-2 flex items-center text-sm text-purple-600">
-              <Clock className="h-4 w-4 mr-1" />
-              <span>持续更新</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Quick Actions */}
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">快速操作</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {quickActions.map((action, index) => (
-                  <Link
-                    key={index}
-                    to={action.href}
-                    className="group p-4 rounded-lg border border-gray-200 hover:border-gray-300 transition-all duration-200 hover:shadow-md"
-                  >
-                    <div className={`inline-flex items-center justify-center w-12 h-12 bg-gradient-to-r ${action.color} rounded-lg text-white mb-3 group-hover:scale-110 transition-transform`}>
-                      {action.icon}
-                    </div>
-                    <h3 className="font-semibold text-gray-900 mb-1">{action.title}</h3>
-                    <p className="text-sm text-gray-600 mb-2">{action.description}</p>
-                    <div className="flex items-center text-blue-600 text-sm font-medium group-hover:text-blue-700">
-                      立即开始
-                      <ArrowRight className="h-3 w-3 ml-1 group-hover:translate-x-1 transition-transform" />
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-
-            {/* Latest Assessment Results */}
             {latestAssessment && (
-              <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-                <h2 className="text-xl font-bold text-gray-900 mb-6">最新测评结果</h2>
-                <div className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h3 className="font-semibold text-gray-900">职业能力测评</h3>
-                      <p className="text-sm text-gray-600">
-                        完成时间：{latestAssessment.completedAt.toLocaleDateString()}
-                      </p>
-                    </div>
-                    <Link
-                      to="/assessment"
-                      className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                    >
-                      查看详情
-                    </Link>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
-                    {Object.entries(latestAssessment.scores).slice(0, 6).map(([skill, score], index) => (
-                      <div key={index} className="text-center">
-                        <div className="text-2xl font-bold text-gray-900">{score}</div>
-                        <div className="text-xs text-gray-600">{skill}</div>
-                      </div>
-                    ))}
-                  </div>
-                  
-                  <div className="flex flex-wrap gap-2">
-                    {latestAssessment.traits.map((trait, index) => (
-                      <span
-                        key={index}
-                        className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium"
-                      >
-                        {trait}
-                      </span>
-                    ))}
-                  </div>
+              <div className="mt-6">
+                <h3 className="mb-3 font-semibold text-white">最新优势标签</h3>
+                <div className="flex flex-wrap gap-2">
+                  {latestAssessment.traits.slice(0, 8).map((trait) => (
+                    <span key={trait} className="rounded-full bg-blue-500/15 px-3 py-1 text-sm text-blue-200">
+                      {trait}
+                    </span>
+                  ))}
                 </div>
               </div>
             )}
           </div>
 
-          {/* Recent Activities */}
-          <div className="space-y-6">
-            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">最近活动</h2>
-              <div className="space-y-4">
-                {recentActivities.map((activity, index) => (
-                  <div key={index} className="flex items-start space-x-3">
-                    <div className="flex-shrink-0 w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
-                      {activity.icon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900">{activity.title}</p>
-                      <p className="text-xs text-gray-500">{activity.time}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                <button className="w-full text-sm text-blue-600 hover:text-blue-700 font-medium">
-                  查看全部活动
-                </button>
-              </div>
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-6">
+            <div className="mb-4 flex items-center gap-3">
+              <TrendingUp className="h-6 w-6 text-emerald-300" />
+              <h2 className="text-2xl font-bold text-white">增长建议</h2>
             </div>
-
-            {/* Progress Tips */}
-            <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl p-6 border border-purple-100">
-              <h2 className="text-lg font-bold text-gray-900 mb-3">成长建议</h2>
-              <div className="space-y-3 text-sm text-gray-700">
-                <div className="flex items-start space-x-2">
-                  <div className="w-1.5 h-1.5 bg-purple-500 rounded-full mt-2"></div>
-                  <p>定期进行职业测评，了解能力变化</p>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full mt-2"></div>
-                  <p>持续优化简历，提升求职竞争力</p>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full mt-2"></div>
-                  <p>多练习面试模拟，增强表达能力</p>
-                </div>
-              </div>
+            <div className="space-y-4 text-gray-200">
+              <p>先锁定一个目标岗位，再围绕该岗位做简历关键词、项目证据和面试故事线。不要同时追十个方向。</p>
+              <p>每次测评和简历优化都应沉淀为下一步动作：投递岗位、补一个项目、练一组面试题。</p>
+              <p>核心不是多一个 AI 功能，而是让用户持续减少求职不确定性，形成从认知到投递再到面试的复利闭环。</p>
             </div>
           </div>
-        </div>
+        </section>
       </div>
-    </div>
     </div>
   );
 };

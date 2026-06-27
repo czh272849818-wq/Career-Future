@@ -255,6 +255,12 @@ const JobMatching = () => {
     return 'text-orange-400';
   };
 
+  const getMatchBreakdown = (score: number) => ({
+    skills: Math.max(45, Math.min(98, score - 4)),
+    evidence: Math.max(40, Math.min(96, score - 8)),
+    growth: Math.max(50, Math.min(99, score + 3))
+  });
+
   const jobsSource = (recommendedJobs && recommendedJobs.length > 0) ? recommendedJobs : mockJobs;
   const filteredJobs = jobsSource.filter(job => {
     const cityMatch = !filterCity || job.location.includes(filterCity);
@@ -461,15 +467,15 @@ const JobMatching = () => {
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
                     <span className="text-gray-400">技能匹配：</span>
-                    <span className="text-green-400 ml-1">85%</span>
+                    <span className="text-green-400 ml-1">{getMatchBreakdown(job.matchScore).skills}%</span>
                   </div>
                   <div>
-                    <span className="text-gray-400">经验要求：</span>
-                    <span className="text-yellow-400 ml-1">90%</span>
+                    <span className="text-gray-400">证据强度：</span>
+                    <span className="text-yellow-400 ml-1">{getMatchBreakdown(job.matchScore).evidence}%</span>
                   </div>
                   <div>
                     <span className="text-gray-400">发展前景：</span>
-                    <span className="text-blue-400 ml-1">95%</span>
+                    <span className="text-blue-400 ml-1">{getMatchBreakdown(job.matchScore).growth}%</span>
                   </div>
                 </div>
               </div>

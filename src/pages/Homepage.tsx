@@ -21,26 +21,28 @@ const Homepage = () => {
   const features = [
     {
       icon: <BarChart3 className="h-8 w-8" />,
-      title: '职业分析',
-      description: '深度分析职业潜能和发展方向',
+      title: '职业画像',
+      description: '把测评、简历和价值观转成可执行职业画像',
       href: '/assessment',
-      color: 'from-purple-600 to-blue-600'
+      color: 'from-emerald-500 to-teal-500'
+    },
+    {
+      icon: <Target className="h-8 w-8" />,
+      title: '岗位策略',
+      description: '从职业画像生成岗位池，筛出最高胜率方向',
+      href: '/jobs',
+      color: 'from-blue-500 to-cyan-500'
     },
     {
       icon: <FileText className="h-8 w-8" />,
-      title: '简历优化',
-      description: 'AI驱动的简历精修服务',
+      title: '简历转化',
+      description: '对照 JD 找关键词缺口，提升投递转化率',
       href: '/resume',
-      color: 'from-purple-500 to-blue-500'
-    },
-    {
-      icon: <MessageSquare className="h-8 w-8" />,
-      title: 'AI面试',
-      description: '模拟真实面试环境和反馈',
-      href: '/interview',
-      color: 'from-purple-400 to-blue-400'
+      color: 'from-orange-500 to-amber-500'
     }
   ];
+
+  const flywheel = ['测评建模', '岗位推荐', '简历定制', '面试训练'];
 
   return (
     <div className="min-h-screen bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
@@ -64,21 +66,32 @@ const Homepage = () => {
             {/* Left Content */}
             <div className="text-left">
               <h1 className="text-5xl sm:text-6xl font-bold tracking-tight mb-8">
-                <span className="bg-gradient-to-r from-purple-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  你的未来不止于此！
+                <span className="bg-gradient-to-r from-emerald-300 via-cyan-300 to-blue-300 bg-clip-text text-transparent">
+                  把职业规划变成增长系统
                 </span>
               </h1>
               
               <p className="text-xl text-gray-300 mb-12 leading-relaxed">
-                通过先进的AI+人工技术，为您量身定制专业的终身职业发展路径
+                不是再给一份泛泛建议，而是用 AI 把测评、岗位、简历、面试和行动计划串成闭环，持续提高求职胜率。
               </p>
+
+              <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {flywheel.map((item, index) => (
+                  <div key={item} className="rounded-xl border border-gray-700 bg-gray-800/70 p-3 text-center">
+                    <div className="mx-auto mb-2 flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-bold text-emerald-300">
+                      {index + 1}
+                    </div>
+                    <p className="text-sm text-gray-200">{item}</p>
+                  </div>
+                ))}
+              </div>
               
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link
                   to="/assessment"
-                  className="group inline-flex items-center justify-center px-8 py-4 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-xl hover:from-purple-700 hover:to-blue-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                  className="group inline-flex items-center justify-center px-8 py-4 bg-gradient-to-r from-emerald-500 to-cyan-500 text-gray-950 font-semibold rounded-xl hover:from-emerald-400 hover:to-cyan-400 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
                 >
-                  开始规划
+                  建立职业画像
                   <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
                 </Link>
                 <Link
@@ -124,13 +137,13 @@ const Homepage = () => {
       </section>
 
       {/* CTA Section */}
-      <section className="bg-gradient-to-r from-purple-600 to-blue-600 py-20 px-4 sm:px-6 lg:px-8">
+      <section className="bg-gradient-to-r from-emerald-600 to-blue-600 py-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-            准备好开启你的职业新篇章了吗？
+            下一步不是“了解自己”，而是拿到更好的机会
           </h2>
           <p className="text-xl text-purple-100 mb-8">
-            立即注册，免费体验AI驱动的职业发展服务
+            先完成一次职业画像，再生成目标岗位、定制简历和面试训练路径。
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link

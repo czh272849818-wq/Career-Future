@@ -17,6 +17,7 @@ import {
 import { useWorkflow } from '../contexts/WorkflowContext';
 import WorkflowProgress from '../components/workflow/WorkflowProgress';
 import BackButton from '../components/ui/BackButton';
+import { apiUrl } from '../api';
 
 const ResumeEnhancement = () => {
   const navigate = useNavigate();
@@ -99,64 +100,119 @@ const ResumeEnhancement = () => {
     }
   };
 
+  const normalizeText = (value: string) => value.toLowerCase().replace(/\s+/g, ' ');
+
+  const extractKeywords = (text: string) => Array.from(new Set(
+    text
+      .replace(/[，。；、：！？（）()[\]{}|/\\]/g, ' ')
+      .split(/\s+/)
+      .map(item => item.trim())
+      .filter(item => item.length >= 2 && item.length <= 24)
+  )).slice(0, 80);
+
+  const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const getResumeText = async () => {
+    if (assessmentData.resumeText) return assessmentData.resumeText;
+    const file = uploadedFile || assessmentData.resume;
+    if (!file) return '';
+
+    const base64 = await fileToBase64(file);
+    const resp = await fetch(apiUrl('/api/extract-text'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName: file.name, mimeType: file.type, dataBase64: base64 })
+    });
+    if (!resp.ok) return '';
+    const data = await resp.json();
+    return String(data?.text || '');
+  };
+
   const handleAnalyze = async () => {
     setIsProcessing(true);
-    
-    // Simulate API processing
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    setAnalysisResult({
-      competitiveScore: 85,
-      improvements: [
+
+    try {
+      const resumeText = await getResumeText();
+      const targetText = [
+        jobDescription,
+        selectedJob?.title,
+        selectedJob?.description,
+        selectedJob?.requirements?.join(' '),
+        assessmentData.traits?.join(' ')
+      ].filter(Boolean).join('\n');
+      const resumeNorm = normalizeText(resumeText);
+      const jdKeywords = extractKeywords(targetText);
+      const matchedKeywords = jdKeywords.filter(keyword => resumeNorm.includes(keyword.toLowerCase()));
+      const missingKeywords = jdKeywords.filter(keyword => !resumeNorm.includes(keyword.toLowerCase())).slice(0, 14);
+      const keywordScore = jdKeywords.length ? Math.round((matchedKeywords.length / jdKeywords.length) * 100) : 55;
+      const evidenceScore = /\d+|%|万|千|增长|提升|降低|节省|用户|收入|转化|留存/.test(resumeText) ? 82 : 52;
+      const focusScore = selectedJob ? 86 : 62;
+      const competitiveScore = Math.max(35, Math.min(96, Math.round(keywordScore * 0.45 + evidenceScore * 0.35 + focusScore * 0.2)));
+
+      const improvements = [
         {
           category: '工作经历',
-          severity: 'high',
-          issue: '缺少量化数据',
-          suggestion: '添加具体的数据指标，如"提升销售额25%"',
+          severity: evidenceScore >= 80 ? 'low' : 'high',
+          issue: evidenceScore >= 80 ? '已有部分量化证据' : '缺少量化结果与业务影响',
+          suggestion: '把职责描述改成“动作 + 方法 + 结果”，每段经历至少补充1个数字或业务指标。',
           examples: [
-            '管理团队 → 管理15人团队，提升团队效率30%',
-            '负责项目 → 负责3个重点项目，总预算500万元'
+            '负责用户增长 → 设计3轮A/B实验，将注册转化率提升18%',
+            '参与项目管理 → 协调5人团队按期交付，缩短上线周期2周'
           ]
         },
         {
           category: '技能关键词',
-          severity: 'medium',
-          issue: 'JD匹配度较低',
-          suggestion: '根据岗位要求补充相关技能关键词',
-          keywords: selectedJob ? selectedJob.requirements : ['Python', '数据分析', '机器学习', '项目管理']
+          severity: keywordScore >= 70 ? 'medium' : 'high',
+          issue: `当前命中 ${matchedKeywords.length}/${jdKeywords.length || 1} 个目标关键词`,
+          suggestion: '优先补齐目标 JD 高频词，并用项目证据证明这些能力，而不是只堆关键词。',
+          keywords: missingKeywords.length ? missingKeywords : (selectedJob?.requirements || ['数据分析', '项目管理', '用户研究', '业务增长'])
         },
         {
-          category: '格式优化',
-          severity: 'low',
-          issue: '排版不够专业',
-          suggestion: '使用更专业的模板和排版风格'
+          category: '岗位聚焦',
+          severity: selectedJob ? 'low' : 'medium',
+          issue: selectedJob ? `已锁定目标岗位：${selectedJob.title}` : '尚未锁定目标岗位',
+          suggestion: selectedJob
+            ? '围绕该岗位保留最相关的3段经历，弱相关经历压缩为一行。'
+            : '先从岗位推荐页选择一个目标岗位，再生成一版定制简历。'
         }
-      ],
-      starOptimization: {
-        before: '负责公司产品的开发工作',
-        after: {
-          situation: '面对用户增长放缓的挑战',
-          task: '负责核心产品功能优化',
-          action: '组建跨部门团队，制定用户体验提升方案',
-          result: '用户活跃度提升35%，用户满意度达到4.8分'
-        }
-      },
-      matchingJobs: [
-        selectedJob ? { title: selectedJob.title, company: selectedJob.company, matchRate: selectedJob.matchScore } : { title: '高级产品经理', company: '腾讯', matchRate: 92 },
-        { title: '产品总监', company: '字节跳动', matchRate: 88 },
-        { title: '产品专家', company: '阿里巴巴', matchRate: 85 }
-      ]
-    });
-    
-    // 保存优化结果到工作流程
-    setOptimizedResume({
-      originalFile: uploadedFile,
-      targetJob: selectedJob,
-      analysisResult: analysisResult,
-      optimizedAt: new Date()
-    });
-    
-    setIsProcessing(false);
+      ];
+
+      const nextResult = {
+        competitiveScore,
+        keywordScore,
+        evidenceScore,
+        matchedKeywords: matchedKeywords.slice(0, 16),
+        missingKeywords,
+        improvements,
+        starOptimization: {
+          before: '负责公司产品的开发工作',
+          after: {
+            situation: selectedJob ? `面向${selectedJob.title}岗位要求` : '面对目标岗位能力要求',
+            task: '筛选最相关经历并补齐能力证据',
+            action: '用STAR结构重写项目，加入目标关键词、协作动作和量化结果',
+            result: `预计 ATS/JD 匹配度提升至 ${Math.max(competitiveScore, 72)}% 左右`
+          }
+        },
+        matchingJobs: selectedJob
+          ? [{ title: selectedJob.title, company: selectedJob.company, matchRate: selectedJob.matchScore }]
+          : [{ title: '请先选择目标岗位', company: '岗位推荐模块', matchRate: competitiveScore }]
+      };
+
+      setAnalysisResult(nextResult);
+      setOptimizedResume({
+        originalFile: uploadedFile || assessmentData.resume,
+        targetJob: selectedJob,
+        analysisResult: nextResult,
+        optimizedAt: new Date()
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleGoToCareerPlanning = () => {
@@ -473,6 +529,36 @@ const ResumeEnhancement = () => {
                     {analysisResult.matchingJobs.length}
                   </div>
                   <p className="text-gray-400">匹配岗位</p>
+                </div>
+              </div>
+
+              <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="rounded-xl border border-green-700 bg-green-900/20 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="font-semibold text-green-200">已命中关键词</h3>
+                    <span className="text-sm text-green-300">JD匹配 {analysisResult.keywordScore}%</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(analysisResult.matchedKeywords || []).length > 0 ? (
+                      analysisResult.matchedKeywords.map((keyword: string) => (
+                        <span key={keyword} className="rounded-full bg-green-700/50 px-3 py-1 text-xs text-green-100">{keyword}</span>
+                      ))
+                    ) : (
+                      <p className="text-sm text-green-100">暂未从简历中识别到目标关键词，请补充项目证据。</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-yellow-700 bg-yellow-900/20 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="font-semibold text-yellow-200">优先补齐缺口</h3>
+                    <span className="text-sm text-yellow-300">证据分 {analysisResult.evidenceScore}%</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(analysisResult.missingKeywords || []).map((keyword: string) => (
+                      <span key={keyword} className="rounded-full bg-yellow-700/50 px-3 py-1 text-xs text-yellow-100">{keyword}</span>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>

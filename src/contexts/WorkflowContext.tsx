@@ -23,6 +23,10 @@ interface JobRecommendation {
   requirements: string[];
   salary: string;
   location: string;
+  industry?: string;
+  reason?: string;
+  isNew?: boolean;
+  isUrgent?: boolean;
 }
 
 interface WorkflowContextType {
