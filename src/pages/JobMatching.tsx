@@ -32,7 +32,7 @@ const JobMatching = () => {
   const [positions, setPositions] = useState<string[]>([]);
   const [taxonomyLoading, setTaxonomyLoading] = useState(false);
 
-  // 模拟岗位数据（作为兜底）
+  // AI接口不可用时的兜底岗位，保证用户流程不中断
   const mockJobs = [
     {
       id: '1',
@@ -489,13 +489,26 @@ const JobMatching = () => {
             <h3 className="text-lg font-bold text-white mb-4">
               已收藏 {selectedJobs.length} 个职位
             </h3>
-            <div className="flex justify-between items-center">
-              <p className="text-gray-300">
-                您可以收藏最多20个职位进行对比分析
-              </p>
-              <button className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all duration-200">
-                对比分析
-              </button>
+            <div className="grid gap-3 md:grid-cols-2">
+              {jobsSource
+                .filter(job => selectedJobs.includes(job.id))
+                .slice(0, 4)
+                .map(job => (
+                  <div key={job.id} className="rounded-xl border border-gray-700 bg-gray-900/50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-white">{job.title}</p>
+                        <p className="text-sm text-gray-400">{job.company} · {job.location}</p>
+                      </div>
+                      <span className={`font-bold ${getMatchScoreColor(job.matchScore)}`}>{job.matchScore}%</span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {job.requirements.slice(0, 3).map(req => (
+                        <span key={req} className="rounded-full bg-gray-700 px-2 py-1 text-xs text-gray-300">{req}</span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
             </div>
           </div>
         )}

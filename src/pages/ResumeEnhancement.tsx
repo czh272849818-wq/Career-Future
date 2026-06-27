@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Upload, 
   FileText, 
-  Download, 
   Star, 
   TrendingUp, 
   CheckCircle,
@@ -362,7 +361,7 @@ const ResumeEnhancement = () => {
                   <div>
                     <p className="font-medium text-blue-300">智能解析说明</p>
                     <p className="text-sm text-blue-200 mt-1">
-                      我们的AI引擎将以≥95%的准确率解析您的简历内容，自动提取个人信息、工作经历、技能等关键信息
+                      系统会提取简历文本，并结合目标岗位识别关键词命中、能力证据和优先补齐项
                     </p>
                   </div>
                 </div>
@@ -452,7 +451,7 @@ const ResumeEnhancement = () => {
               <div className="mt-6 p-4 bg-purple-900/20 border border-purple-700 rounded-lg">
                 <p className="text-sm text-purple-300">
                   <Award className="h-4 w-4 inline mr-1" />
-                  提供15+行业适配模板，支持自定义格式
+                  模板只影响呈现，真正决定转化的是岗位关键词和项目证据
                 </p>
               </div>
             </div>
@@ -619,107 +618,20 @@ const ResumeEnhancement = () => {
               </div>
             </div>
 
-            {/* Feedback and Revision Section */}
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-gray-700">
-              <h2 className="text-2xl font-bold text-white mb-6">简历反馈与修改</h2>
-              
-              <div className="space-y-6">
-                {/* Text Feedback */}
-                <div>
-                  <h3 className="font-semibold text-white mb-3">文字反馈</h3>
-                  <textarea
-                    placeholder="请输入您对简历优化结果的反馈意见，我们将根据您的建议进行调整..."
-                    rows={4}
-                    className="w-full p-4 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none text-white placeholder-gray-400"
-                  />
-                </div>
-                
-                {/* Voice Feedback */}
-                <div>
-                  <h3 className="font-semibold text-white mb-3">语音反馈</h3>
-                  <div className="flex items-center space-x-4">
-                    <button className="inline-flex items-center px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-colors">
-                      <div className="w-3 h-3 bg-white rounded-full mr-2 animate-pulse"></div>
-                      开始录音
-                    </button>
-                    <button className="inline-flex items-center px-4 py-2 bg-gray-600 text-gray-300 font-medium rounded-lg hover:bg-gray-500 transition-colors">
-                      停止录音
-                    </button>
-                    <span className="text-gray-400 text-sm">点击开始录音，说出您的反馈意见</span>
-                  </div>
-                  
-                  {/* Voice Recording Status */}
-                  <div className="mt-3 p-3 bg-blue-900/20 border border-blue-700 rounded-lg">
-                    <div className="flex items-center">
-                      <div className="w-2 h-2 bg-blue-400 rounded-full mr-2"></div>
-                      <span className="text-blue-300 text-sm">准备录音中...</span>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Revision Options */}
-                <div>
-                  <h3 className="font-semibold text-white mb-3">修改选项</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-3">
-                      <label className="flex items-center">
-                        <input type="checkbox" className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-600 bg-gray-700 rounded" />
-                        <span className="ml-2 text-gray-300">调整工作经历描述</span>
-                      </label>
-                      <label className="flex items-center">
-                        <input type="checkbox" className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-600 bg-gray-700 rounded" />
-                        <span className="ml-2 text-gray-300">优化技能关键词</span>
-                      </label>
-                      <label className="flex items-center">
-                        <input type="checkbox" className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-600 bg-gray-700 rounded" />
-                        <span className="ml-2 text-gray-300">调整简历格式</span>
-                      </label>
-                    </div>
-                    <div className="space-y-3">
-                      <label className="flex items-center">
-                        <input type="checkbox" className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-600 bg-gray-700 rounded" />
-                        <span className="ml-2 text-gray-300">修改个人简介</span>
-                      </label>
-                      <label className="flex items-center">
-                        <input type="checkbox" className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-600 bg-gray-700 rounded" />
-                        <span className="ml-2 text-gray-300">调整教育背景</span>
-                      </label>
-                      <label className="flex items-center">
-                        <input type="checkbox" className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-600 bg-gray-700 rounded" />
-                        <span className="ml-2 text-gray-300">优化项目经历</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Submit Feedback */}
-                <div className="flex justify-between items-center pt-4 border-t border-gray-700">
-                  <div className="text-sm text-gray-400">
-                    <p>💡 提示：详细的反馈有助于我们为您提供更精准的简历优化</p>
-                  </div>
-                  <button className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all duration-200">
-                    提交反馈并重新优化
-                    <ArrowRight className="h-4 w-4 ml-2" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Download Section */}
+            {/* Next Actions */}
             <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-6 text-white text-center">
-              <h2 className="text-2xl font-bold mb-4">下载优化后的简历</h2>
+              <h2 className="text-2xl font-bold mb-4">下一步行动</h2>
               <p className="mb-6 text-blue-100">
-                AI已完成简历优化，您可以下载多个格式的简历文件
+                简历分析的价值不在下载报告，而在立刻补齐关键词、重写项目证据，并进入面试训练。
               </p>
               
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <button className="inline-flex items-center px-6 py-3 bg-white text-purple-600 font-semibold rounded-lg hover:bg-purple-50 transition-colors">
-                  <Download className="h-5 w-5 mr-2" />
-                  下载PDF版本
-                </button>
-                <button className="inline-flex items-center px-6 py-3 bg-blue-500 text-white font-semibold rounded-lg hover:bg-blue-400 transition-colors">
-                  <Download className="h-5 w-5 mr-2" />
-                  下载Word版本
+                <button
+                  onClick={handleAnalyze}
+                  className="inline-flex items-center px-6 py-3 bg-white text-purple-600 font-semibold rounded-lg hover:bg-purple-50 transition-colors"
+                >
+                  <Zap className="h-5 w-5 mr-2" />
+                  重新分析
                 </button>
                 <button 
                   onClick={handleGoToCareerPlanning}

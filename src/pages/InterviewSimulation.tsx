@@ -229,7 +229,7 @@ const InterviewSimulation = () => {
     }
   ];
 
-  // 模拟面试问题
+  // AI接口不可用时使用的基础题库，保证训练流程不中断
   const mockQuestions = {
     comprehensive: [
       // 个人基本素养
@@ -429,44 +429,48 @@ const InterviewSimulation = () => {
   const completeInterview = () => {
     setIsTimerActive(false);
     setIsRecording(false);
-    
-    // 模拟面试结果
+
+    const currentRound = interviewRounds[currentRoundIndex];
+    const questions = currentRound ? currentRound.questions : (interviewType ? (llmQuestions[interviewType] || mockQuestions[interviewType]) : []);
+    const answeredCount = answers.filter(Boolean).length;
+    const completionRate = questions.length ? Math.round((answeredCount / questions.length) * 100) : 70;
+    const targetBonus = selectedJob ? 8 : 0;
+    const assessmentBonus = assessmentData?.traits?.length ? 6 : 0;
+    const overallScore = Math.max(55, Math.min(95, Math.round(completionRate * 0.55 + 28 + targetBonus + assessmentBonus)));
+
     const result: InterviewResult = {
       type: interviewType,
       isMultiRound,
       rounds: isMultiRound ? interviewRounds.length : 1,
       completedAt: new Date(),
-      overallScore: Math.floor(Math.random() * 30) + 70,
+      overallScore,
       scores: {
-        '基本素养': Math.floor(Math.random() * 30) + 70,
-        '沟通表达': Math.floor(Math.random() * 30) + 70,
-        '行业认知': Math.floor(Math.random() * 30) + 70,
-        '岗位匹配': Math.floor(Math.random() * 30) + 70,
-        '发展潜力': Math.floor(Math.random() * 30) + 70,
+        '基本素养': Math.max(55, Math.min(95, overallScore + 2)),
+        '沟通表达': Math.max(55, Math.min(95, completionRate + 5)),
+        '行业认知': Math.max(55, Math.min(95, overallScore - (selectedJob ? 0 : 8))),
+        '岗位匹配': Math.max(55, Math.min(95, overallScore + targetBonus - 4)),
+        '发展潜力': Math.max(55, Math.min(95, overallScore + assessmentBonus - 3)),
         ...(isMultiRound && interviewRounds.some(r => r.type === 'group') ? {
-          '团队协作': Math.floor(Math.random() * 30) + 70,
-          '领导能力': Math.floor(Math.random() * 30) + 70
+          '团队协作': Math.max(55, Math.min(95, overallScore - 2)),
+          '领导能力': Math.max(55, Math.min(95, overallScore - 5))
         } : {})
       },
       feedback: [
-        '基本素养扎实，展现出良好的职业素质和个人修养',
-        '沟通表达能力强，能够清晰准确地传达自己的观点',
-        '对发展趋势有深入理解，专业知识储备丰富',
-        '与岗位需求匹配度高，相关经验和技能符合要求',
-        '展现出良好的学习能力和发展潜力',
+        selectedJob ? `回答已围绕「${selectedJob.title}」展开，岗位聚焦度更高` : '建议先选择目标岗位，再进行针对性面试训练',
+        `本次完成 ${answeredCount}/${questions.length || 1} 个问题，完成度 ${completionRate}%`,
+        assessmentData?.traits?.length ? `已结合职业画像优势：${assessmentData.traits.slice(0, 3).join('、')}` : '职业画像信息不足，建议先完成测评',
+        '能完成完整面试流程，具备继续迭代表达素材的基础',
         ...(isMultiRound && interviewRounds.some(r => r.type === 'group') ? [
-          '在群体面试中表现出色，具备良好的团队协作精神',
-          '能够在讨论中积极发言，展现一定的领导潜质'
+          '多轮/群面流程已覆盖，后续应重点训练倾听、总结和推动共识'
         ] : [])
       ],
       improvements: [
-        '建议在回答行业问题时可以结合更多具体案例',
-        '可以进一步加强对公司业务和文化的了解',
-        '在描述项目经验时可以更突出个人贡献和成果',
-        '建议关注行业最新动态，保持知识更新',
+        '每个核心问题准备一个STAR案例，避免只讲观点不讲证据',
+        selectedJob ? `补充 ${selectedJob.company} 与岗位业务的调研信息` : '先锁定一个目标岗位和公司，再训练高频问题',
+        '回答项目经历时突出个人动作、关键决策和量化结果',
+        '准备3个反问问题，验证岗位目标、团队协作和成功标准',
         ...(isMultiRound && interviewRounds.some(r => r.type === 'group') ? [
-          '在群体讨论中可以更多地倾听他人意见',
-          '建议提升在团队中的影响力和说服力'
+          '群体讨论中先复述共识，再提出分歧方案'
         ] : [])
       ]
     };
@@ -486,6 +490,32 @@ const InterviewSimulation = () => {
     setIsTimerActive(false);
     setIsMultiRound(false);
     setInterviewRounds([]);
+  };
+
+  const downloadInterviewReport = () => {
+    if (!interviewResult) return;
+    const lines = [
+      '职向未来 Pro - 面试训练报告',
+      `生成时间：${interviewResult.completedAt.toLocaleString()}`,
+      `目标岗位：${selectedJob ? `${selectedJob.company} / ${selectedJob.title}` : '未选择'}`,
+      `总体评分：${interviewResult.overallScore}`,
+      '',
+      '分项评分：',
+      ...Object.entries(interviewResult.scores).map(([name, score]) => `- ${name}: ${score}`),
+      '',
+      '表现亮点：',
+      ...interviewResult.feedback.map(item => `- ${item}`),
+      '',
+      '改进建议：',
+      ...interviewResult.improvements.map(item => `- ${item}`)
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `interview-report-${Date.now()}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const formatTime = (seconds: number) => {
@@ -887,7 +917,7 @@ const InterviewSimulation = () => {
           <div className="text-center space-y-4">
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <button
-                onClick={() => {/* 下载报告逻辑 */}}
+                onClick={downloadInterviewReport}
                 className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all duration-200"
               >
                 <Download className="h-5 w-5 mr-2" />
@@ -1196,9 +1226,9 @@ const InterviewSimulation = () => {
               <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full mb-4">
                 <Video className="h-8 w-8 text-white" />
               </div>
-              <h1 className="text-4xl font-bold text-white mb-4">AI模拟面试</h1>
+              <h1 className="text-4xl font-bold text-white mb-4">AI面试训练</h1>
               <p className="text-xl text-gray-300">
-                {selectedJob ? `针对「${selectedJob.title}」岗位的专业面试` : '真实面试环境模拟，提升面试表现'}
+                {selectedJob ? `针对「${selectedJob.title}」岗位训练高频问题` : '围绕目标岗位训练表达、案例和追问应对'}
               </p>
             </div>
             {selectedJob && (
