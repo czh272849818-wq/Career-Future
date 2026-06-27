@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Target } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 const Homepage = () => {
   return (
@@ -12,11 +12,6 @@ const Homepage = () => {
         </div>
 
         <div className="w-full max-w-5xl text-center">
-          <div className="mb-8 inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200">
-            <Target className="mr-2 h-4 w-4" />
-            职业增长系统
-          </div>
-
           <h1 className="mx-auto max-w-5xl text-6xl font-black leading-[0.95] tracking-tight sm:text-7xl lg:text-8xl">
             你的人生
             <span className="block bg-gradient-to-r from-emerald-300 via-cyan-300 to-blue-300 bg-clip-text text-transparent">
