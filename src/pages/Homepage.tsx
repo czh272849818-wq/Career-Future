@@ -1,168 +1,82 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { 
-  Brain, 
-  FileText, 
-  MessageSquare, 
-  Target, 
-  ArrowRight, 
-  Users, 
-  Star,
-  CheckCircle,
-  TrendingUp,
-  Award,
-  Zap,
-  Shield,
-  BarChart3
-} from 'lucide-react';
-import BackButton from '../components/ui/BackButton';
+import { ArrowRight, CheckCircle, Target } from 'lucide-react';
 
 const Homepage = () => {
-  const features = [
-    {
-      icon: <BarChart3 className="h-8 w-8" />,
-      title: '职业画像',
-      description: '把测评、简历和价值观转成可执行职业画像',
-      href: '/assessment',
-      color: 'from-emerald-500 to-teal-500'
-    },
-    {
-      icon: <Target className="h-8 w-8" />,
-      title: '岗位策略',
-      description: '从职业画像生成岗位池，筛出最高胜率方向',
-      href: '/jobs',
-      color: 'from-blue-500 to-cyan-500'
-    },
-    {
-      icon: <FileText className="h-8 w-8" />,
-      title: '简历转化',
-      description: '对照 JD 找关键词缺口，提升投递转化率',
-      href: '/resume',
-      color: 'from-orange-500 to-amber-500'
-    }
+  const principles = [
+    '先定位一个目标，不做泛泛规划',
+    '用证据补齐简历，不堆功能',
+    '用面试反馈迭代，而不是凭感觉努力'
   ];
 
-  const flywheel = ['测评建模', '岗位推荐', '简历定制', '面试训练'];
-
   return (
-    <div className="min-h-screen bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-4">
-          <BackButton />
+    <div className="min-h-screen overflow-hidden bg-[#0b1220] px-4 py-16 text-white sm:px-6 lg:px-8">
+      <section className="relative mx-auto flex min-h-[calc(100vh-8rem)] max-w-6xl items-center">
+        <div className="absolute inset-0 -z-10">
+          <div className="absolute left-1/2 top-10 h-80 w-80 -translate-x-1/2 rounded-full bg-emerald-400/20 blur-3xl" />
+          <div className="absolute bottom-8 right-0 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
         </div>
-      {/* Hero Section */}
-      <section className="relative overflow-hidden px-4 py-24 sm:px-6 lg:px-8">
-        {/* Background Pattern */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-600/20 to-blue-600/20"></div>
-          <div className="absolute inset-0" style={{
-            backgroundImage: `radial-gradient(circle at 25% 25%, rgba(139, 92, 246, 0.1) 0%, transparent 50%), 
-                             radial-gradient(circle at 75% 75%, rgba(59, 130, 246, 0.1) 0%, transparent 50%)`
-          }}></div>
-        </div>
-        
-        <div className="relative max-w-7xl mx-auto">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            {/* Left Content */}
-            <div className="text-left">
-              <h1 className="text-5xl sm:text-6xl font-bold tracking-tight mb-8">
-                <span className="bg-gradient-to-r from-emerald-300 via-cyan-300 to-blue-300 bg-clip-text text-transparent">
-                  把职业规划变成增长系统
-                </span>
-              </h1>
-              
-              <p className="text-xl text-gray-300 mb-12 leading-relaxed">
-                不是再给一份泛泛建议，而是用 AI 把测评、岗位、简历、面试和行动计划串成闭环，持续提高求职胜率。
-              </p>
 
-              <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {flywheel.map((item, index) => (
-                  <div key={item} className="rounded-xl border border-gray-700 bg-gray-800/70 p-3 text-center">
-                    <div className="mx-auto mb-2 flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-bold text-emerald-300">
-                      {index + 1}
-                    </div>
-                    <p className="text-sm text-gray-200">{item}</p>
+        <div className="grid w-full gap-12 lg:grid-cols-[1.05fr_0.75fr] lg:items-center">
+          <div>
+            <div className="mb-8 inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200">
+              <Target className="mr-2 h-4 w-4" />
+              职业增长系统
+            </div>
+
+            <h1 className="max-w-4xl text-5xl font-black leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl">
+              先找准方向，
+              <span className="block bg-gradient-to-r from-emerald-300 to-cyan-300 bg-clip-text text-transparent">
+                再提高胜率。
+              </span>
+            </h1>
+
+            <p className="mt-8 max-w-2xl text-lg leading-8 text-slate-300 sm:text-xl">
+              职向未来 Pro 只做一件事：把你的测评、岗位、简历和面试训练压缩成一条可执行路径，减少试错，提高求职转化。
+            </p>
+
+            <div className="mt-10 flex flex-col gap-4 sm:flex-row">
+              <Link
+                to="/assessment"
+                className="inline-flex items-center justify-center rounded-2xl bg-emerald-400 px-7 py-4 text-base font-bold text-slate-950 shadow-[0_20px_60px_rgba(52,211,153,0.25)] transition hover:-translate-y-0.5 hover:bg-emerald-300"
+              >
+                开始职业测评
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Link>
+              <Link
+                to="/dashboard"
+                className="inline-flex items-center justify-center rounded-2xl border border-slate-600 px-7 py-4 text-base font-bold text-slate-200 transition hover:border-slate-400 hover:bg-white/5"
+              >
+                查看增长控制台
+              </Link>
+            </div>
+          </div>
+
+          <div className="rounded-[2rem] border border-slate-700 bg-slate-900/70 p-6 shadow-2xl backdrop-blur">
+            <p className="mb-6 text-sm font-semibold uppercase tracking-[0.28em] text-slate-400">System Logic</p>
+            <div className="space-y-4">
+              {principles.map((item, index) => (
+                <div key={item} className="flex items-start gap-4 rounded-2xl border border-slate-700 bg-slate-950/50 p-5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-400/15 text-sm font-bold text-emerald-300">
+                    {index + 1}
                   </div>
-                ))}
-              </div>
-              
-              <div className="flex flex-col sm:flex-row gap-4">
-                <Link
-                  to="/assessment"
-                  className="group inline-flex items-center justify-center px-8 py-4 bg-gradient-to-r from-emerald-500 to-cyan-500 text-gray-950 font-semibold rounded-xl hover:from-emerald-400 hover:to-cyan-400 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-                >
-                  建立职业画像
-                  <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
-                </Link>
-                <Link
-                  to="/dashboard"
-                  className="inline-flex items-center justify-center px-8 py-4 border-2 border-gray-600 text-gray-300 font-semibold rounded-xl hover:border-gray-500 hover:bg-gray-800 hover:text-white transition-all duration-300"
-                >
-                  了解更多
-                </Link>
-              </div>
-            </div>
-
-            {/* Right Content - Feature Cards */}
-            <div className="relative">
-              <div className="grid gap-6">
-                {features.map((feature, index) => (
-                  <Link
-                    key={index}
-                    to={feature.href}
-                    className="group relative overflow-hidden bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700 hover:border-gray-600 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-xl"
-                  >
-                    <div className="flex items-center space-x-4">
-                      <div className={`inline-flex p-3 rounded-xl bg-gradient-to-r ${feature.color} text-white shadow-lg group-hover:scale-110 transition-transform`}>
-                        {feature.icon}
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="text-xl font-bold text-white mb-2 group-hover:text-purple-400 transition-colors">
-                          {feature.title}
-                        </h3>
-                        <p className="text-gray-400 leading-relaxed">
-                          {feature.description}
-                        </p>
-                      </div>
-                      <ArrowRight className="h-5 w-5 text-gray-500 group-hover:text-purple-400 group-hover:translate-x-1 transition-all" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-emerald-300" />
+                      <p className="font-semibold text-white">{item}</p>
                     </div>
-                    
-                    <div className={`absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r ${feature.color} transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300`}></div>
-                  </Link>
-                ))}
-              </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">
+                      {index === 0 && '没有目标岗位，后续优化都是噪音。'}
+                      {index === 1 && '简历的本质是岗位匹配证据。'}
+                      {index === 2 && '反馈越快，迭代越准。'}
+                    </p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       </section>
-
-      {/* CTA Section */}
-      <section className="bg-gradient-to-r from-emerald-600 to-blue-600 py-20 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-            下一步不是“了解自己”，而是拿到更好的机会
-          </h2>
-          <p className="text-xl text-purple-100 mb-8">
-            先完成一次职业画像，再生成目标岗位、定制简历和面试训练路径。
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link
-              to="/register"
-              className="inline-flex items-center justify-center px-8 py-4 bg-white text-purple-600 font-semibold rounded-xl hover:bg-gray-100 transition-colors shadow-lg"
-            >
-              免费注册
-              <ArrowRight className="ml-2 h-5 w-5" />
-            </Link>
-            <Link
-              to="/assessment"
-              className="inline-flex items-center justify-center px-8 py-4 border-2 border-white text-white font-semibold rounded-xl hover:bg-white hover:text-purple-600 transition-all duration-300"
-            >
-              立即开始规划
-            </Link>
-          </div>
-        </div>
-      </section>
-    </div>
     </div>
   );
 };
