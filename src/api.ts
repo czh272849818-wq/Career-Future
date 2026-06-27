@@ -45,6 +45,21 @@ export function apiUrl(path: string): string {
       return '/.netlify/functions/auth-login';
     }
   }
+  if (path === '/api/auth/phone-code') {
+    if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
+      return '/.netlify/functions/auth-phone-code';
+    }
+  }
+  if (path === '/api/auth/phone-login') {
+    if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
+      return '/.netlify/functions/auth-phone-login';
+    }
+  }
+  if (path === '/api/auth/wechat/start') {
+    if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
+      return '/.netlify/functions/auth-wechat-start';
+    }
+  }
   if (path === '/api/auth/demo') {
     if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
       return '/.netlify/functions/auth-demo';

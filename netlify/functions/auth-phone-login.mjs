@@ -12,9 +12,9 @@ const DB_PATH = path.join('/tmp', 'netlify-auth-db.json');
 
 function readDB() {
   try {
-    const txt = fs.readFileSync(DB_PATH, 'utf-8');
-    const obj = JSON.parse(txt);
-    if (!obj.users || !obj.emailIndex) return { users: {}, emailIndex: {}, phoneIndex: {}, wechatIndex: {}, phoneCodes: {}, data: {} };
+    const obj = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+    obj.users = obj.users || {};
+    obj.emailIndex = obj.emailIndex || {};
     obj.phoneIndex = obj.phoneIndex || {};
     obj.wechatIndex = obj.wechatIndex || {};
     obj.phoneCodes = obj.phoneCodes || {};
@@ -59,13 +59,9 @@ function createToken(user) {
   return Buffer.from(payload).toString('base64') + '.' + sig;
 }
 
-export default async (req, context) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers, status: 204 });
-  }
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers });
-  }
+export default async (req) => {
+  if (req.method === 'OPTIONS') return new Response(null, { headers, status: 204 });
+  if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers });
 
   let body;
   try {
@@ -74,32 +70,38 @@ export default async (req, context) => {
     return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers });
   }
 
-  const { email = '', password = '', name = '', phone = '' } = body || {};
-  if (!email || !password) {
-    return new Response(JSON.stringify({ error: '邮箱与密码为必填' }), { status: 400, headers });
-  }
-
+  const phone = normalizePhone(body?.phone || '');
+  const code = String(body?.code || '').trim();
   const db = readDB();
-  const normalizedEmail = String(email).trim().toLowerCase();
-  const normalizedPhone = normalizePhone(phone);
-  if (db.emailIndex[normalizedEmail]) {
-    return new Response(JSON.stringify({ error: '邮箱已注册' }), { status: 409, headers });
+  const record = db.phoneCodes[phone];
+  if (!record || record.expiresAt < Date.now() || String(record.code) !== code) {
+    return new Response(JSON.stringify({ error: '验证码错误或已过期' }), { status: 401, headers });
   }
-  if (normalizedPhone && db.phoneIndex[normalizedPhone]) {
-    return new Response(JSON.stringify({ error: '手机号已注册' }), { status: 409, headers });
-  }
+  delete db.phoneCodes[phone];
 
-  const id = uid();
-  const salt = crypto.randomBytes(8).toString('hex');
-  const passwordHash = hashPassword(password, salt);
-  const user = { id, email: normalizedEmail, phone: normalizedPhone, name, passwordHash, salt, registeredAt: new Date().toISOString(), avatar: '' };
-  db.users[id] = user;
-  db.emailIndex[normalizedEmail] = id;
-  if (normalizedPhone) db.phoneIndex[normalizedPhone] = id;
-  db.data[id] = db.data[id] || { profile: {}, assessments: [], chatSessions: [], resumes: [], createdAt: new Date().toISOString() };
+  let id = db.phoneIndex[phone];
+  if (!id || !db.users[id]) {
+    id = uid();
+    const salt = crypto.randomBytes(8).toString('hex');
+    const passwordHash = hashPassword(crypto.randomBytes(18).toString('hex'), salt);
+    db.users[id] = {
+      id,
+      email: '',
+      phone,
+      name: body?.name || `用户${phone.slice(-4)}`,
+      avatar: '',
+      passwordHash,
+      salt,
+      registeredAt: new Date().toISOString()
+    };
+    db.phoneIndex[phone] = id;
+    db.data[id] = { profile: {}, assessments: [], chatSessions: [], resumes: [], createdAt: new Date().toISOString() };
+  }
   writeDB(db);
 
-  const token = createToken(user);
-  const resBody = { token, user: sanitizeUser(user) };
-  return new Response(JSON.stringify(resBody), { status: 200, headers: { ...headers, 'Content-Type': 'application/json' } });
+  const user = db.users[id];
+  return new Response(JSON.stringify({ token: createToken(user), user: sanitizeUser(user) }), {
+    status: 200,
+    headers: { ...headers, 'Content-Type': 'application/json' }
+  });
 };

@@ -14,15 +14,27 @@ function readDB() {
   try {
     const txt = fs.readFileSync(DB_PATH, 'utf-8');
     const obj = JSON.parse(txt);
-    if (!obj.users || !obj.emailIndex) return { users: {}, emailIndex: {}, data: {} };
+    if (!obj.users || !obj.emailIndex) return { users: {}, emailIndex: {}, phoneIndex: {}, wechatIndex: {}, phoneCodes: {}, data: {} };
+    obj.phoneIndex = obj.phoneIndex || {};
+    obj.wechatIndex = obj.wechatIndex || {};
+    obj.phoneCodes = obj.phoneCodes || {};
+    obj.data = obj.data || {};
     return obj;
   } catch {
-    return { users: {}, emailIndex: {}, data: {} };
+    return { users: {}, emailIndex: {}, phoneIndex: {}, wechatIndex: {}, phoneCodes: {}, data: {} };
   }
 }
 
 function hashPassword(password, salt) {
   return crypto.createHash('sha256').update(String(password) + ':' + String(salt)).digest('hex');
+}
+
+function normalizePhone(phone = '') {
+  const digits = String(phone).trim().replace(/[^\d+]/g, '');
+  if (/^\+86\d{11}$/.test(digits)) return digits;
+  if (/^86\d{11}$/.test(digits)) return `+${digits}`;
+  if (/^1\d{10}$/.test(digits)) return `+86${digits}`;
+  return digits;
 }
 
 function sanitizeUser(user) {
@@ -52,13 +64,14 @@ export default async (req) => {
     return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers });
   }
 
-  const { email = '', password = '' } = body || {};
-  if (!email || !password) {
-    return new Response(JSON.stringify({ error: '邮箱与密码为必填' }), { status: 400, headers });
+  const { email = '', identifier = '', password = '' } = body || {};
+  const loginId = String(identifier || email).trim();
+  if (!loginId || !password) {
+    return new Response(JSON.stringify({ error: '账号与密码为必填' }), { status: 400, headers });
   }
 
   const db = readDB();
-  const id = db.emailIndex[email];
+  const id = loginId.includes('@') ? db.emailIndex[loginId.toLowerCase()] : db.phoneIndex[normalizePhone(loginId)];
   if (!id) {
     return new Response(JSON.stringify({ error: '用户不存在' }), { status: 404, headers });
   }
@@ -72,4 +85,3 @@ export default async (req) => {
   const resBody = { token, user: sanitizeUser(user) };
   return new Response(JSON.stringify(resBody), { status: 200, headers: { ...headers, 'Content-Type': 'application/json' } });
 };
-

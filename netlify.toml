@@ -48,3 +48,23 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+[[redirects]]
+  from = "/api/auth/phone-code"
+  to = "/.netlify/functions/auth-phone-code"
+  status = 200
+
+[[redirects]]
+  from = "/api/auth/phone-login"
+  to = "/.netlify/functions/auth-phone-login"
+  status = 200
+
+[[redirects]]
+  from = "/api/auth/wechat/start"
+  to = "/.netlify/functions/auth-wechat-start"
+  status = 200
+
+[[redirects]]
+  from = "/api/auth/wechat/callback"
+  to = "/.netlify/functions/auth-wechat-callback"
+  status = 200
