@@ -18,7 +18,7 @@ export default async (req, context) => {
     return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: cors });
   }
 
-  const { messages, model = 'deepseek-chat', temperature = 0.7, stream = false } = body || {};
+  const { messages, attachmentContext = [], model = 'deepseek-chat', temperature = 0.7, stream = false } = body || {};
   if (!Array.isArray(messages) || !messages.length) {
     return new Response(JSON.stringify({ error: 'messages required' }), { status: 400, headers: cors });
   }
@@ -29,6 +29,19 @@ export default async (req, context) => {
   }
 
   const upstreamUrl = 'https://api.deepseek.com/v1/chat/completions';
+  const attachmentText = Array.isArray(attachmentContext) && attachmentContext.length
+    ? attachmentContext.map((item) => {
+        if (!item) return '';
+        const name = item.name || 'unknown';
+        const type = item.type || 'unknown';
+        const size = typeof item.size === 'number' ? `${(item.size / 1024 / 1024).toFixed(2)} MB` : 'unknown size';
+        const text = String(item.text || '').trim();
+        return [`- ${name} (${type}, ${size})`, text ? `  内容: ${text}` : ''].filter(Boolean).join('\n');
+      }).filter(Boolean).join('\n')
+    : '';
+  const upstreamMessages = attachmentText
+    ? [messages[0], { role: 'system', content: `附件上下文仅供参考，不要在回答中逐字复述，只提炼与用户问题相关的信息：\n${attachmentText}` }, ...messages.slice(1)]
+    : messages;
 
   if (stream) {
     // 支持 SSE 流式：快速发送心跳，透传上游事件，降低超时概率
@@ -56,7 +69,7 @@ export default async (req, context) => {
               'Content-Type': 'application/json',
               Accept: 'text/event-stream',
             },
-            body: JSON.stringify({ model, messages, temperature, stream: true }),
+            body: JSON.stringify({ model, messages: upstreamMessages, temperature, stream: true }),
             signal: aborter.signal,
           });
         } catch (err) {
@@ -116,7 +129,7 @@ export default async (req, context) => {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ model, messages, temperature, stream: false }),
+      body: JSON.stringify({ model, messages: upstreamMessages, temperature, stream: false }),
       signal: aborter.signal,
     });
     clearTimeout(t);

@@ -123,28 +123,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const conversation = updatedSession.messages
         .filter(m => m.id !== 'welcome')
         .slice(-MAX_CONTEXT_MESSAGES);
-      const formatAttachmentContext = (items: ChatAttachment[]) => {
-        if (!items.length) return '';
-        const summary = items.map(item => `- ${item.name} (${item.type || 'unknown'}, ${(item.size / 1024 / 1024).toFixed(2)} MB)`).join('\n');
-        const text = items
-          .map(item => item.text?.trim())
-          .filter(Boolean)
-          .join('\n\n');
-        return [
-          `附件摘要:\n${summary}`,
-          text ? `附件内容:\n${text}` : ''
-        ].filter(Boolean).join('\n\n');
-      };
-
       const apiMessages = [
         { role: 'system', content: '你是一位专业的中文职业规划顾问。请用简洁、结构化的 Markdown 输出，默认采用以下结构：1) 结论 2) 关键分析 3) 建议/下一步。需要比较时使用表格，需要分步骤时使用编号列表。避免冗长铺陈，不要输出无意义的套话。如果用户提供了附件，请结合附件内容，并明确指出你引用了哪些文件信息。' },
         ...conversation.map(m => ({
           role: m.sender === 'user' ? 'user' : 'assistant',
-          content: m.sender === 'user' && m.attachments?.length
-            ? [m.content, formatAttachmentContext(m.attachments)].filter(Boolean).join('\n\n')
-            : m.content
+          content: m.content
         }))
       ];
+
+      const attachmentContext = attachments.length
+        ? attachments.map(item => ({
+            name: item.name,
+            type: item.type,
+            size: item.size,
+            text: item.text || ''
+          }))
+        : [];
 
       if (streamEnabled) {
         try {
@@ -167,7 +161,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           const resp = await fetch(apiUrl('/api/deepseek/chat'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages: apiMessages, model, temperature, stream: true })
+            body: JSON.stringify({ messages: apiMessages, attachmentContext, model, temperature, stream: true })
           });
 
           if (!resp.ok || !resp.body) {
@@ -239,7 +233,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             const resp = await fetch(apiUrl('/api/deepseek/chat'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ messages: apiMessages, model, temperature, stream: false })
+              body: JSON.stringify({ messages: apiMessages, attachmentContext, model, temperature, stream: false })
             });
             if (!resp.ok) {
               const text = await resp.text();
@@ -273,7 +267,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const resp = await fetch(apiUrl('/api/deepseek/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: apiMessages, model, temperature, stream: false })
+        body: JSON.stringify({ messages: apiMessages, attachmentContext, model, temperature, stream: false })
       });
 
       if (!resp.ok) {

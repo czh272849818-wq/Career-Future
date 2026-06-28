@@ -215,7 +215,7 @@ app.post('/api/extract-text', async (req, res) => {
 app.post('/api/deepseek/chat', async (req, res) => {
   const t0 = Date.now();
   try {
-    const { messages, model = 'deepseek-chat', temperature = 0.7, stream = false } = req.body || {};
+    const { messages, attachmentContext = [], model = 'deepseek-chat', temperature = 0.7, stream = false } = req.body || {};
 
     if (!Array.isArray(messages) || messages.length === 0) {
       console.warn('[deepseek/chat] 400 invalid messages');
@@ -225,6 +225,24 @@ app.post('/api/deepseek/chat', async (req, res) => {
       console.warn('[deepseek/chat] 500 missing api key');
       return res.status(500).json({ error: 'Server is not configured with DEEPSEEK_API_KEY' });
     }
+
+    const attachmentText = Array.isArray(attachmentContext) && attachmentContext.length
+      ? attachmentContext.map((item) => {
+          if (!item) return '';
+          const name = item.name || 'unknown';
+          const type = item.type || 'unknown';
+          const size = typeof item.size === 'number' ? `${(item.size / 1024 / 1024).toFixed(2)} MB` : 'unknown size';
+          const text = String(item.text || '').trim();
+          return [`- ${name} (${type}, ${size})`, text ? `  内容: ${text}` : ''].filter(Boolean).join('\n');
+        }).filter(Boolean).join('\n')
+      : '';
+    const attachmentSystemMessage = attachmentText
+      ? {
+          role: 'system',
+          content: `附件上下文仅供参考，不要在回答中逐字复述，只提炼与用户问题相关的信息：\n${attachmentText}`
+        }
+      : null;
+    const upstreamMessages = attachmentSystemMessage ? [messages[0], attachmentSystemMessage, ...messages.slice(1)] : messages;
 
     // Streaming support
     if (stream) {
@@ -242,7 +260,7 @@ app.post('/api/deepseek/chat', async (req, res) => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${API_KEY}`,
         },
-        body: JSON.stringify({ model, messages, temperature, stream: true }),
+        body: JSON.stringify({ model, messages: upstreamMessages, temperature, stream: true }),
       });
 
       if (!response.ok) {
@@ -276,7 +294,7 @@ app.post('/api/deepseek/chat', async (req, res) => {
       },
       body: JSON.stringify({
         model,
-        messages,
+        messages: upstreamMessages,
         temperature,
         stream: false,
       }),
