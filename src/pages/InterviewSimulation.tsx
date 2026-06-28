@@ -29,6 +29,7 @@ import {
   Trash2,
   UserPlus
 } from 'lucide-react';
+import { useAssessment } from '../contexts/AssessmentContext';
 import { useWorkflow } from '../contexts/WorkflowContext';
 import { useAuth } from '../contexts/AuthContext';
 import BackButton from '../components/ui/BackButton';
@@ -65,6 +66,9 @@ const InterviewSimulation = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const { selectedJob, assessmentData } = useWorkflow();
+  const { getIndustryPositions } = useAssessment();
+  const industryMap = getIndustryPositions();
+  const industryOptions = Object.keys(industryMap);
   
   // 面试状态
   const [interviewType, setInterviewType] = useState<'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements' | null>(null);
@@ -92,6 +96,37 @@ const InterviewSimulation = () => {
   const [llmQuestions, setLlmQuestions] = useState<Record<string, string[]>>({});
   const [generating, setGenerating] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [setupError, setSetupError] = useState('');
+  const [selectedIndustryLocal, setSelectedIndustryLocal] = useState(selectedJob?.industry || '');
+  const [selectedPositionLocal, setSelectedPositionLocal] = useState(selectedJob?.title || '');
+  const [jobDescription, setJobDescription] = useState(selectedJob?.description || '');
+  const [jobResponsibilities, setJobResponsibilities] = useState(
+    Array.isArray(selectedJob?.requirements) ? selectedJob.requirements.join('\n') : ''
+  );
+  const [digitalHumanMode, setDigitalHumanMode] = useState<'listen' | 'ask' | 'idle'>('idle');
+
+  useEffect(() => {
+    if (!selectedJob) return;
+    setSelectedIndustryLocal(selectedJob.industry || '');
+    setSelectedPositionLocal(selectedJob.title || '');
+    setJobDescription(selectedJob.description || '');
+    setJobResponsibilities(Array.isArray(selectedJob.requirements) ? selectedJob.requirements.join('\n') : '');
+  }, [selectedJob]);
+
+  const availablePositions = selectedIndustryLocal ? (industryMap[selectedIndustryLocal] || []) : [];
+
+  const buildQuestionContext = () => {
+    const parts = [
+      selectedIndustryLocal ? `行业：${selectedIndustryLocal}` : '',
+      selectedPositionLocal ? `岗位：${selectedPositionLocal}` : '',
+      selectedJob?.company ? `目标公司：${selectedJob.company}` : '',
+      jobDescription.trim() ? `岗位介绍：${jobDescription.trim()}` : '',
+      jobResponsibilities.trim() ? `岗位职责：${jobResponsibilities.trim()}` : '',
+      assessmentData?.aiAnalysis ? `候选人画像：${String(assessmentData.aiAnalysis).slice(0, 500)}` : '',
+      assessmentData?.traits?.length ? `候选人优势标签：${assessmentData.traits.slice(0, 5).join('、')}` : ''
+    ].filter(Boolean);
+    return parts.join('\n');
+  };
   
   const generateInterviewQuestions = async (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements') => {
     try {
@@ -99,13 +134,8 @@ const InterviewSimulation = () => {
       const sys = '你是资深中文面试官。仅输出一个JSON数组，数组元素为面试问题字符串；不要输出Markdown或额外文本。';
       const typeMeta = interviewTypes.find(t => t.id === type);
       const count = typeMeta?.questions || 10;
-      const ctxParts = [
-        `面试类型：${typeMeta?.name || type}`,
-        selectedJob?.title ? `目标岗位：${selectedJob.title}` : '',
-        selectedJob?.company ? `公司：${selectedJob.company}` : '',
-        assessmentData?.aiAnalysis ? `候选人分析摘要：${String(assessmentData.aiAnalysis).slice(0, 800)}` : ''
-      ].filter(Boolean);
-      const user = `请生成${count}条${typeMeta?.name || ''}面试问题。${ctxParts.join('\n')}\n仅返回JSON数组（纯字符串问题列表）。`;
+      const ctx = buildQuestionContext();
+      const user = `请生成${count}条${typeMeta?.name || ''}面试问题，必须严格贴合下面上下文，并优先围绕岗位职责、行业要求和候选人画像出题。\n${ctx}\n仅返回JSON数组（纯字符串问题列表）。`;
   
       const resp = await fetch(apiUrl('/api/deepseek/chat'), {
         method: 'POST',
@@ -478,6 +508,12 @@ const InterviewSimulation = () => {
       navigate('/login');
       return;
     }
+
+    if (type !== 'basic_quality' && (!selectedIndustryLocal || !selectedPositionLocal)) {
+      setSetupError('请先选择行业和岗位，再开始针对性面试。');
+      return;
+    }
+    setSetupError('');
     
     const selectedType = interviewTypes.find(t => t.id === type);
     setInterviewType(type);
@@ -500,6 +536,7 @@ const InterviewSimulation = () => {
       setCurrentRoundIndex(0);
       setTimeRemaining(180);
       setIsTimerActive(true);
+      setDigitalHumanMode('ask');
       // 生成该面试类型的题库（DeepSeek）
       generateInterviewQuestions(type);
     }
@@ -662,6 +699,7 @@ const InterviewSimulation = () => {
     
     setInterviewResult(result);
     setCurrentStep('result');
+    setDigitalHumanMode('idle');
   };
 
   const restartInterview = () => {
@@ -677,6 +715,7 @@ const InterviewSimulation = () => {
     setIsTimerActive(false);
     setIsMultiRound(false);
     setInterviewRounds([]);
+    setDigitalHumanMode('idle');
   };
 
   const downloadInterviewReport = () => {
@@ -1140,6 +1179,7 @@ const InterviewSimulation = () => {
     const currentQuestion = questions[currentQuestionIndex];
     const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
     const isGroupInterview = currentRound?.type === 'group';
+    const interviewerName = selectedPositionLocal || selectedJob?.title || 'AI 面试官';
 
     return (
       <div className="min-h-screen bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
@@ -1273,6 +1313,38 @@ const InterviewSimulation = () => {
                       </>
                     )}
                   </button>
+                </div>
+                <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-[220px_1fr]">
+                  <div className="rounded-2xl border border-gray-700 bg-gray-900/70 p-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border ${
+                        digitalHumanMode === 'ask' ? 'border-purple-400' : 'border-gray-600'
+                      } bg-gradient-to-br from-purple-600 via-indigo-600 to-blue-500`}>
+                        <div className="absolute inset-0 animate-pulse rounded-full bg-white/10" />
+                        <Users className="relative z-10 h-7 w-7 text-white" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm text-gray-400">AI数字人面试官</p>
+                        <h3 className="truncate text-lg font-semibold text-white">{interviewerName}</h3>
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-2 text-sm text-gray-300">
+                      <p>行业：{selectedIndustryLocal || '未选择'}</p>
+                      <p>岗位：{selectedPositionLocal || '未选择'}</p>
+                      <p>状态：{isRecording ? '正在听取回答' : '等待求职者回答'}</p>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-gray-700 bg-gray-900/70 p-4">
+                    <p className="text-xs uppercase tracking-[0.2em] text-purple-300">Current Question</p>
+                    <p className="mt-2 text-base leading-7 text-white">
+                      {currentQuestion}
+                    </p>
+                    <p className="mt-3 text-sm text-gray-400">
+                      {digitalHumanMode === 'ask'
+                        ? '数字人会基于行业、岗位介绍和职责持续追问。'
+                        : '点击开始面试后，数字人面试官将进入提问状态。'}
+                    </p>
+                  </div>
                 </div>
                 <div className="mt-5">
                   <label className="mb-2 block text-sm font-medium text-gray-300">回答记录</label>
@@ -1451,7 +1523,92 @@ const InterviewSimulation = () => {
           {/* 面试类型选择 */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-8 border border-gray-700">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">面试上下文</h2>
+                  <p className="text-sm text-gray-400 mt-1">先选行业、岗位，再补充岗位介绍和职责，面试题会据此生成。</p>
+                </div>
+                <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs ${
+                  digitalHumanMode === 'ask' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-gray-700 text-gray-300'
+                }`}>
+                  <div className="h-2 w-2 rounded-full bg-current" />
+                  {digitalHumanMode === 'ask' ? '数字人面试官已就位' : '待开始'}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-300">行业</label>
+                  <select
+                    value={selectedIndustryLocal}
+                    onChange={(e) => {
+                      const nextIndustry = e.target.value;
+                      setSelectedIndustryLocal(nextIndustry);
+                      setSelectedPositionLocal('');
+                    }}
+                    className="w-full rounded-lg border border-gray-600 bg-gray-700 p-3 text-white focus:border-purple-500 focus:outline-none"
+                  >
+                    <option value="">请选择行业</option>
+                    {industryOptions.map((industry) => (
+                      <option key={industry} value={industry}>{industry}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-300">岗位</label>
+                  <select
+                    value={selectedPositionLocal}
+                    onChange={(e) => setSelectedPositionLocal(e.target.value)}
+                    className="w-full rounded-lg border border-gray-600 bg-gray-700 p-3 text-white focus:border-purple-500 focus:outline-none"
+                  >
+                    <option value="">{selectedIndustryLocal ? '请选择岗位' : '请先选择行业'}</option>
+                    {availablePositions.map((position) => (
+                      <option key={position} value={position}>{position}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-4">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-300">岗位介绍</label>
+                  <textarea
+                    value={jobDescription}
+                    onChange={(e) => setJobDescription(e.target.value)}
+                    placeholder="例如：负责招聘、团队管理、候选人评估、业务协同..."
+                    rows={3}
+                    className="w-full rounded-lg border border-gray-600 bg-gray-700 p-3 text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-300">岗位职责</label>
+                  <textarea
+                    value={jobResponsibilities}
+                    onChange={(e) => setJobResponsibilities(e.target.value)}
+                    placeholder="每行写一条职责，例如：负责目标岗位的日常执行与复盘"
+                    rows={4}
+                    className="w-full rounded-lg border border-gray-600 bg-gray-700 p-3 text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="mt-4 rounded-xl border border-gray-700 bg-gray-900/60 p-4 text-sm text-gray-300">
+                <div className="flex items-center gap-2 text-white">
+                  <MessageSquare className="h-4 w-4 text-purple-300" />
+                  面试官视角
+                </div>
+                <p className="mt-2 leading-6">
+                  {selectedIndustryLocal && selectedPositionLocal
+                    ? `当前面试官将以「${selectedIndustryLocal} / ${selectedPositionLocal}」为基准追问岗位能力、职责理解和真实工作场景。`
+                    : '选择行业和岗位后，系统会自动生成针对性的面试题。'}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-8 border border-gray-700">
               <h2 className="text-2xl font-bold text-white mb-6">选择面试类型</h2>
+              {setupError && (
+                <div className="mb-4 rounded-xl border border-yellow-700/50 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
+                  {setupError}
+                </div>
+              )}
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {interviewTypes.map((type) => (
@@ -1511,11 +1668,12 @@ const InterviewSimulation = () => {
                     
                     <button
                       onClick={() => startInterview(type.id as any)}
+                      disabled={!(selectedIndustryLocal && selectedPositionLocal) && type.id !== 'basic_quality'}
                       className="w-full flex items-center justify-center text-blue-400 text-sm font-medium group-hover:text-blue-300 transition-colors"
-                    >
-                      开始面试
-                      <ArrowRight className="h-3 w-3 ml-1 group-hover:translate-x-1 transition-transform" />
-                    </button>
+                  >
+                    开始面试
+                    <ArrowRight className="h-3 w-3 ml-1 group-hover:translate-x-1 transition-transform" />
+                  </button>
                   </div>
                 ))}
               </div>
