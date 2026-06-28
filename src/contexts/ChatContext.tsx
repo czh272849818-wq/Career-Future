@@ -332,14 +332,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const conversation = updatedSession.messages
         .filter(m => m.id !== 'welcome')
         .slice(-MAX_CONTEXT_MESSAGES);
-      const apiMessages = [
-        { role: 'system', content: '你是一位专业的中文职业规划顾问。请用简洁、结构化的 Markdown 输出，默认采用以下结构：1) 结论 2) 关键分析 3) 建议/下一步。需要比较时使用表格，需要分步骤时使用编号列表。避免冗长铺陈，不要输出无意义的套话。如果用户提供了附件，请结合附件内容，并明确指出你引用了哪些文件信息。' },
-        ...conversation.map(m => ({
-          role: m.sender === 'user' ? 'user' : 'assistant',
-          content: m.content
-        }))
-      ];
-
       const attachmentContext = attachments.length
         ? attachments.map(item => ({
             name: item.name,
@@ -348,6 +340,26 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             text: item.text || ''
           }))
         : [];
+
+      const attachmentPrompt = attachmentContext.length
+        ? [{
+            role: 'system',
+            content: `附件上下文仅供参考，不要逐字复述，只提炼和用户问题相关的信息：\n${attachmentContext.map((item) => {
+              const size = typeof item.size === 'number' ? `${(item.size / 1024 / 1024).toFixed(2)} MB` : 'unknown size';
+              const text = String(item.text || '').trim();
+              return [`- ${item.name || 'unknown'} (${item.type || 'unknown'}, ${size})`, text ? `  内容: ${text}` : ''].filter(Boolean).join('\n');
+            }).join('\n')}`
+          }]
+        : [];
+
+      const apiMessages = [
+        { role: 'system', content: '你是一位专业的中文职业规划顾问。请用简洁、结构化的 Markdown 输出，默认采用以下结构：1) 结论 2) 关键分析 3) 建议/下一步。需要比较时使用表格，需要分步骤时使用编号列表。避免冗长铺陈，不要输出无意义的套话。如果用户提供了附件，请结合附件内容，并明确指出你引用了哪些文件信息。' },
+        ...attachmentPrompt,
+        ...conversation.map(m => ({
+          role: m.sender === 'user' ? 'user' : 'assistant',
+          content: m.content
+        }))
+      ];
 
       if (streamEnabled) {
         try {
