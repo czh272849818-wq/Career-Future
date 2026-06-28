@@ -42,17 +42,18 @@ npm run build && npm run preview:host
   - `GET  /api/health`：健康检查
 
 ## 部署方案
-### 前端（Netlify，Git连接）
+### 前端与云存储（Netlify，Git连接）
 1. 在 Netlify 创建站点，选择 “New site from Git”，连接你的仓库。
 2. 构建设置：
    - `Build command`: `npm run build`
    - `Publish directory`: `dist`
 3. 环境变量：
-   - 设置 `VITE_API_BASE=https://你的后端域名`
+   - 如果你使用仓库内置的 Netlify Functions + Blobs 云存储方案，可以不设置 `VITE_API_BASE`。
+   - 如果你仍想接入外部后端，再设置 `VITE_API_BASE=https://你的后端域名`。
 4. `public/_redirects` 会在构建时自动打包到 `dist`，保证路由正常。
 
-### 后端（Render/Railway/Fly 等）
-1. 部署 `server/index.js` 到 Node 运行环境。
+### 后端（可选，Render/Railway/Fly 等）
+1. 如果你选择外部后端，再部署 `server/index.js` 到 Node 运行环境。
 2. 设置环境变量 `DEEPSEEK_API_KEY`（必须）、`PORT`（可选）。
 3. 放行跨域（已在代码中使用 `cors()`）。
 4. 获取公网域名，例如 `https://your-backend.example.com`，供前端使用。
@@ -60,6 +61,7 @@ npm run build && npm run preview:host
 ### 注意事项
 - 不要在前端暴露或打包后端密钥（如 `DEEPSEEK_API_KEY`）。
 - 浏览器报 `Failed to fetch` 或 `net::ERR_ABORTED` 多为后端未启动或密钥缺失。
+- 聊天记录、账号、测评结果现在可以通过 Netlify Functions + Blobs 持久化，不再依赖浏览器本地存储。
 - 若后端依赖较重（如 `tesseract.js`），建议使用专用 Node 服务，而非函数环境。
 
 ### CI 自动部署（GitHub Actions + Netlify）

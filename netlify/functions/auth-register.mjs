@@ -1,63 +1,10 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import crypto from 'node:crypto';
+import { createToken, createUser, sanitizeUser } from './_shared/auth-store.mjs';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'content-type',
 };
-
-const DB_PATH = path.join('/tmp', 'netlify-auth-db.json');
-
-function readDB() {
-  try {
-    const txt = fs.readFileSync(DB_PATH, 'utf-8');
-    const obj = JSON.parse(txt);
-    if (!obj.users || !obj.emailIndex) return { users: {}, emailIndex: {}, phoneIndex: {}, wechatIndex: {}, phoneCodes: {}, data: {} };
-    obj.phoneIndex = obj.phoneIndex || {};
-    obj.wechatIndex = obj.wechatIndex || {};
-    obj.phoneCodes = obj.phoneCodes || {};
-    obj.data = obj.data || {};
-    return obj;
-  } catch {
-    return { users: {}, emailIndex: {}, phoneIndex: {}, wechatIndex: {}, phoneCodes: {}, data: {} };
-  }
-}
-
-function writeDB(db) {
-  try {
-    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
-  } catch {}
-}
-
-function uid() {
-  return `${Date.now().toString(36)}-${crypto.randomBytes(6).toString('hex')}`;
-}
-
-function hashPassword(password, salt) {
-  return crypto.createHash('sha256').update(String(password) + ':' + String(salt)).digest('hex');
-}
-
-function normalizePhone(phone = '') {
-  const digits = String(phone).trim().replace(/[^\d+]/g, '');
-  if (/^\+86\d{11}$/.test(digits)) return digits;
-  if (/^86\d{11}$/.test(digits)) return `+${digits}`;
-  if (/^1\d{10}$/.test(digits)) return `+86${digits}`;
-  return digits;
-}
-
-function sanitizeUser(user) {
-  const { passwordHash, salt, ...safe } = user;
-  return safe;
-}
-
-function createToken(user) {
-  const secret = process.env.AUTH_SECRET || 'dev-secret';
-  const payload = JSON.stringify({ id: user.id, ts: Date.now() });
-  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-  return Buffer.from(payload).toString('base64') + '.' + sig;
-}
 
 export default async (req, context) => {
   if (req.method === 'OPTIONS') {
@@ -79,27 +26,15 @@ export default async (req, context) => {
     return new Response(JSON.stringify({ error: '邮箱与密码为必填' }), { status: 400, headers });
   }
 
-  const db = readDB();
-  const normalizedEmail = String(email).trim().toLowerCase();
-  const normalizedPhone = normalizePhone(phone);
-  if (db.emailIndex[normalizedEmail]) {
-    return new Response(JSON.stringify({ error: '邮箱已注册' }), { status: 409, headers });
+  try {
+    const user = await createUser({ email, password, name, phone });
+    const token = createToken(user);
+    const resBody = { token, user: sanitizeUser(user) };
+    return new Response(JSON.stringify(resBody), { status: 200, headers: { ...headers, 'Content-Type': 'application/json' } });
+  } catch (err) {
+    if (String(err?.message) === 'EMAIL_EXISTS') return new Response(JSON.stringify({ error: '邮箱已注册' }), { status: 409, headers });
+    if (String(err?.message) === 'PHONE_EXISTS') return new Response(JSON.stringify({ error: '手机号已注册' }), { status: 409, headers });
+    console.error('[auth-register] error:', err);
+    return new Response(JSON.stringify({ error: '注册失败' }), { status: 500, headers });
   }
-  if (normalizedPhone && db.phoneIndex[normalizedPhone]) {
-    return new Response(JSON.stringify({ error: '手机号已注册' }), { status: 409, headers });
-  }
-
-  const id = uid();
-  const salt = crypto.randomBytes(8).toString('hex');
-  const passwordHash = hashPassword(password, salt);
-  const user = { id, email: normalizedEmail, phone: normalizedPhone, name, passwordHash, salt, registeredAt: new Date().toISOString(), avatar: '' };
-  db.users[id] = user;
-  db.emailIndex[normalizedEmail] = id;
-  if (normalizedPhone) db.phoneIndex[normalizedPhone] = id;
-  db.data[id] = db.data[id] || { profile: {}, assessments: [], chatSessions: [], resumes: [], createdAt: new Date().toISOString() };
-  writeDB(db);
-
-  const token = createToken(user);
-  const resBody = { token, user: sanitizeUser(user) };
-  return new Response(JSON.stringify(resBody), { status: 200, headers: { ...headers, 'Content-Type': 'application/json' } });
 };

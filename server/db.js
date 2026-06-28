@@ -41,6 +41,10 @@ function uid() {
   return `${Date.now().toString(36)}-${crypto.randomBytes(6).toString('hex')}`;
 }
 
+function createUserData() {
+  return { profile: {}, assessments: [], chatSessions: [], currentSessionId: null, resumes: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+}
+
 function hashPassword(password, salt) {
   return crypto.createHash('sha256').update(String(password) + ':' + String(salt)).digest('hex');
 }
@@ -73,7 +77,7 @@ export function ensureDemoUser() {
   };
   db.users[id] = user;
   db.emailIndex[DEMO_EMAIL] = id;
-  db.data[id] = db.data[id] || { profile: {}, assessments: [], chatSessions: [], resumes: [], createdAt: new Date().toISOString() };
+  db.data[id] = db.data[id] || createUserData();
   writeDB(db);
   return user;
 }
@@ -100,7 +104,7 @@ export function createUser({ email = '', password = '', name = '', phone = '' })
   db.users[id] = user;
   if (normalizedEmail) db.emailIndex[normalizedEmail] = id;
   if (normalizedPhone) db.phoneIndex[normalizedPhone] = id;
-  db.data[id] = { profile: {}, assessments: [], chatSessions: [], resumes: [], createdAt: new Date().toISOString() };
+  db.data[id] = createUserData();
   writeDB(db);
   return user;
 }
@@ -173,7 +177,7 @@ export function loginOrCreatePhoneUser({ phone, code, name = '' }) {
   };
   db.users[id] = user;
   db.phoneIndex[normalizedPhone] = id;
-  db.data[id] = { profile: {}, assessments: [], chatSessions: [], resumes: [], createdAt: new Date().toISOString() };
+  db.data[id] = createUserData();
   writeDB(db);
   return user;
 }
@@ -212,7 +216,7 @@ export function upsertWechatUser({ openid, unionid = '', nickname = '', avatar =
   };
   db.users[id] = user;
   db.wechatIndex[openid] = id;
-  db.data[id] = { profile: {}, assessments: [], chatSessions: [], resumes: [], createdAt: new Date().toISOString() };
+  db.data[id] = createUserData();
   writeDB(db);
   return user;
 }
@@ -224,14 +228,14 @@ export function getUserData(userId) {
 
 export function upsertUserData(userId, patch) {
   const db = readDB();
-  db.data[userId] = { ...(db.data[userId] || {}), ...patch };
+  db.data[userId] = { ...(db.data[userId] || createUserData()), ...patch, updatedAt: new Date().toISOString() };
   writeDB(db);
   return db.data[userId];
 }
 
 export function addAssessment(userId, assessment) {
   const db = readDB();
-  const data = db.data[userId] || { profile: {}, assessments: [], chatSessions: [], resumes: [], createdAt: new Date().toISOString() };
+  const data = db.data[userId] || createUserData();
   data.assessments = Array.isArray(data.assessments) ? data.assessments : [];
   data.assessments.unshift(assessment);
   db.data[userId] = data;

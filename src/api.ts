@@ -45,6 +45,23 @@ export function apiUrl(path: string): string {
       return '/.netlify/functions/auth-login';
     }
   }
+  if (path === '/api/chat-sessions') {
+    if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
+      return '/.netlify/functions/chat-sessions';
+    }
+  }
+  const userDataMatch = path.match(/^\/api\/users\/([^/]+)\/data$/);
+  if (userDataMatch) {
+    if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
+      return `/.netlify/functions/user-data?userId=${encodeURIComponent(userDataMatch[1])}`;
+    }
+  }
+  const userAssessmentMatch = path.match(/^\/api\/users\/([^/]+)\/assessments$/);
+  if (userAssessmentMatch) {
+    if (onNetlify || (!base && !(import.meta.env && import.meta.env.DEV))) {
+      return `/.netlify/functions/user-assessments?userId=${encodeURIComponent(userAssessmentMatch[1])}`;
+    }
+  }
 
   // 非 Netlify 且配置了后端基础地址时，拼接为绝对路径
   if (base && !onNetlify) return `${base}${path}`;

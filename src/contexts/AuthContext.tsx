@@ -13,6 +13,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
+  isReady: boolean;
   login: (identifier: string, password: string) => Promise<void>;
   register: (userData: { email: string; password: string }) => Promise<void>;
   logout: () => void;
@@ -23,6 +24,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
     // Check for stored auth token
@@ -32,7 +34,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (token && userData) {
       try {
         const parsedUser = JSON.parse(userData);
-        setUser(parsedUser);
+        setUser({
+          ...parsedUser,
+          registeredAt: new Date(parsedUser?.registeredAt || Date.now())
+        });
         setIsAuthenticated(true);
       } catch (error) {
         console.error('Error parsing stored user data:', error);
@@ -40,12 +45,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('user_data');
       }
     }
+    setIsReady(true);
   }, []);
 
   const persistAuth = (token: string, rawUser: any) => {
     const safeUser: User = { ...rawUser, registeredAt: new Date(rawUser?.registeredAt || Date.now()) };
     setUser(safeUser);
     setIsAuthenticated(true);
+    setIsReady(true);
     localStorage.setItem('auth_token', token);
     localStorage.setItem('user_data', JSON.stringify(safeUser));
   };
@@ -81,6 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = () => {
     setUser(null);
     setIsAuthenticated(false);
+    setIsReady(true);
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user_data');
   };
@@ -89,6 +97,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={{
       user,
       isAuthenticated,
+      isReady,
       login,
       register,
       logout,

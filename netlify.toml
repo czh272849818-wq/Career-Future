@@ -40,13 +40,13 @@
   status = 200
 
 [[redirects]]
-  from = "/api/auth/demo"
-  to = "/.netlify/functions/auth-demo"
+  from = "/api/chat-sessions"
+  to = "/.netlify/functions/chat-sessions"
   status = 200
 
 [[redirects]]
-  from = "/*"
-  to = "/index.html"
+  from = "/api/auth/demo"
+  to = "/.netlify/functions/auth-demo"
   status = 200
 
 [[redirects]]
@@ -67,4 +67,9 @@
 [[redirects]]
   from = "/api/auth/wechat/callback"
   to = "/.netlify/functions/auth-wechat-callback"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
   status = 200

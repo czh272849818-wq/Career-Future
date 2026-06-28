@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
+import { useAuth } from './AuthContext';
 import { apiUrl } from '../api';
 
 import { DEFAULT_LLM_MODEL, DEFAULT_TEMPERATURE, DEFAULT_STREAM } from '../llm/config';
@@ -50,6 +51,7 @@ interface ChatContextType {
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
+  const { user, isReady: isAuthReady } = useAuth();
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -64,15 +66,23 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [temperature, setTemperature] = useState<number>(DEFAULT_TEMPERATURE);
   const [streamEnabled, setStreamEnabled] = useState<boolean>(DEFAULT_STREAM);
 
-  const getStorageKey = () => {
-    try {
-      const raw = localStorage.getItem('user_data');
-      const userId = raw ? JSON.parse(raw)?.id : '';
-      return userId ? `ai_chat_sessions_${userId}` : 'ai_chat_sessions_guest';
-    } catch {
-      return 'ai_chat_sessions_guest';
-    }
+  const userId = user?.id || null;
+  const getLocalStorageKey = (id: string | null) => id ? `ai_chat_sessions_${id}` : 'ai_chat_sessions_guest';
+
+  const sanitizeAttachment = (attachment: ChatAttachment) => {
+    const { dataUrl, ...safe } = attachment || {};
+    return safe;
   };
+
+  const serializeSession = (session: ChatSession) => ({
+    ...session,
+    messages: Array.isArray(session.messages)
+      ? session.messages.map((message) => ({
+          ...message,
+          attachments: Array.isArray(message.attachments) ? message.attachments.map(sanitizeAttachment) : undefined
+        }))
+      : []
+  });
 
   const reviveSession = (session: any): ChatSession => ({
     ...session,
@@ -81,20 +91,71 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     messages: Array.isArray(session.messages)
       ? session.messages.map((message: any) => ({
           ...message,
-          timestamp: new Date(message.timestamp)
+          timestamp: new Date(message.timestamp),
+          attachments: Array.isArray(message.attachments) ? message.attachments.map(sanitizeAttachment) : message.attachments
         }))
       : []
   });
 
-  const persistSessions = (nextSessions: ChatSession[], nextCurrentSession: ChatSession | null) => {
-    if (!didHydrateRef.current) return;
+  const readLocalSessions = (storageKey: string) => {
     try {
-      localStorage.setItem(getStorageKey(), JSON.stringify({
-        sessions: nextSessions,
-        currentSessionId: nextCurrentSession?.id || null
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const storedSessions = Array.isArray(parsed?.sessions) ? parsed.sessions.map(reviveSession) : [];
+      const storedCurrentId = parsed?.currentSessionId || null;
+      return {
+        sessions: storedSessions,
+        currentSessionId: storedCurrentId
+      };
+    } catch (error) {
+      console.warn('[chat] failed to read local sessions:', error);
+      return null;
+    }
+  };
+
+  const saveLocalSessions = (storageKey: string, nextSessions: ChatSession[], nextCurrentSessionId: string | null) => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({
+        sessions: nextSessions.map(serializeSession),
+        currentSessionId: nextCurrentSessionId
       }));
     } catch (error) {
-      console.warn('[chat] failed to persist sessions:', error);
+      console.warn('[chat] failed to persist local sessions:', error);
+    }
+  };
+
+  const loadRemoteSessions = async (remoteUserId: string) => {
+    const resp = await fetch(apiUrl(`/api/chat-sessions?userId=${encodeURIComponent(remoteUserId)}`));
+    if (!resp.ok) {
+      if (resp.status !== 404) {
+        const text = await resp.text().catch(() => '');
+        throw new Error(text || '加载聊天记录失败');
+      }
+      return null;
+    }
+
+    const data = await resp.json();
+    const storedSessions = Array.isArray(data?.sessions) ? data.sessions.map(reviveSession) : [];
+    return {
+      sessions: storedSessions,
+      currentSessionId: data?.currentSessionId || null
+    };
+  };
+
+  const saveRemoteSessions = async (remoteUserId: string, nextSessions: ChatSession[], nextCurrentSessionId: string | null) => {
+    const resp = await fetch(apiUrl('/api/chat-sessions'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: remoteUserId,
+        sessions: nextSessions.map(serializeSession),
+        currentSessionId: nextCurrentSessionId
+      })
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(text || '保存聊天记录失败');
     }
   };
 
@@ -120,39 +181,93 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(getStorageKey());
-      if (!raw) {
-        didHydrateRef.current = true;
-        createNewSession();
-        return;
-      }
+    if (!isAuthReady) return;
 
-      const parsed = JSON.parse(raw);
-      const storedSessions = Array.isArray(parsed?.sessions)
-        ? parsed.sessions.map(reviveSession)
-        : [];
-      const storedCurrentId = parsed?.currentSessionId || null;
-      const nextCurrentSession = storedSessions.find(s => s.id === storedCurrentId) || storedSessions[0] || null;
+    let cancelled = false;
+    const run = async () => {
+      didHydrateRef.current = false;
+      try {
+        const guestKey = getLocalStorageKey(null);
+        const userKey = getLocalStorageKey(userId);
+        const userLocalState = readLocalSessions(userKey);
+        const guestLocalState = readLocalSessions(guestKey);
+        const localState = (userLocalState?.sessions?.length ? userLocalState : null) || guestLocalState;
 
-      if (storedSessions.length > 0) {
-        setSessions(storedSessions);
-        setCurrentSession(nextCurrentSession);
-      } else {
-        createNewSession();
+        if (!userId) {
+          if (localState?.sessions.length) {
+            const nextCurrentSession = localState.sessions.find(s => s.id === localState.currentSessionId) || localState.sessions[0] || null;
+            if (!cancelled) {
+              setSessions(localState.sessions);
+              setCurrentSession(nextCurrentSession);
+            }
+          } else if (!cancelled) {
+            createNewSession();
+          }
+          return;
+        }
+
+        const remoteState = await loadRemoteSessions(userId).catch((error) => {
+          console.warn('[chat] failed to load remote sessions:', error);
+          return null;
+        });
+
+        if (remoteState?.sessions.length) {
+          const nextCurrentSession = remoteState.sessions.find(s => s.id === remoteState.currentSessionId) || remoteState.sessions[0] || null;
+          if (!cancelled) {
+            setSessions(remoteState.sessions);
+            setCurrentSession(nextCurrentSession);
+          }
+          return;
+        }
+
+        if (localState?.sessions.length) {
+          const nextCurrentSession = localState.sessions.find(s => s.id === localState.currentSessionId) || localState.sessions[0] || null;
+          if (!cancelled) {
+            setSessions(localState.sessions);
+            setCurrentSession(nextCurrentSession);
+          }
+          try {
+            await saveRemoteSessions(userId, localState.sessions, nextCurrentSession?.id || null);
+          } catch (error) {
+            console.warn('[chat] failed to migrate local sessions to cloud:', error);
+          }
+          try {
+            localStorage.removeItem(userKey);
+            if (guestKey !== userKey) localStorage.removeItem(guestKey);
+          } catch {}
+          return;
+        }
+
+        if (!cancelled) {
+          createNewSession();
+        }
+      } catch (error) {
+        console.warn('[chat] failed to hydrate sessions:', error);
+        if (!cancelled) createNewSession();
+      } finally {
+        if (!cancelled) didHydrateRef.current = true;
       }
-    } catch (error) {
-      console.warn('[chat] failed to load sessions:', error);
-      createNewSession();
-    } finally {
-      didHydrateRef.current = true;
-    }
-  }, []);
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthReady, userId]);
 
   useEffect(() => {
     if (!didHydrateRef.current) return;
-    persistSessions(sessions, currentSession);
-  }, [sessions, currentSession]);
+    if (isTyping) return;
+    const nextCurrentSessionId = currentSession?.id || null;
+    if (userId) {
+      void saveRemoteSessions(userId, sessions, nextCurrentSessionId).catch((error) => {
+        console.warn('[chat] failed to save remote sessions:', error);
+        saveLocalSessions(getLocalStorageKey(userId), sessions, nextCurrentSessionId);
+      });
+    } else {
+      saveLocalSessions(getLocalStorageKey(null), sessions, nextCurrentSessionId);
+    }
+  }, [sessions, currentSession, userId, isTyping]);
 
   const switchSession = (sessionId: string) => {
     const session = sessions.find(s => s.id === sessionId);

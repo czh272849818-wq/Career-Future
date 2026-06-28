@@ -1,35 +1,10 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import crypto from 'node:crypto';
+import { createPhoneCode } from './_shared/auth-store.mjs';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'content-type',
 };
-
-const DB_PATH = path.join('/tmp', 'netlify-auth-db.json');
-
-function readDB() {
-  try {
-    const obj = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
-    obj.users = obj.users || {};
-    obj.emailIndex = obj.emailIndex || {};
-    obj.phoneIndex = obj.phoneIndex || {};
-    obj.wechatIndex = obj.wechatIndex || {};
-    obj.phoneCodes = obj.phoneCodes || {};
-    obj.data = obj.data || {};
-    return obj;
-  } catch {
-    return { users: {}, emailIndex: {}, phoneIndex: {}, wechatIndex: {}, phoneCodes: {}, data: {} };
-  }
-}
-
-function writeDB(db) {
-  try {
-    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
-  } catch {}
-}
 
 function normalizePhone(phone = '') {
   const digits = String(phone).trim().replace(/[^\d+]/g, '');
@@ -84,15 +59,11 @@ export default async (req) => {
     return new Response(JSON.stringify({ error: '请输入有效的中国大陆手机号' }), { status: 400, headers });
   }
 
-  const db = readDB();
-  const code = crypto.randomInt(100000, 999999).toString();
-  const expiresAt = Date.now() + 10 * 60 * 1000;
-  db.phoneCodes[phone] = { code, expiresAt };
-  writeDB(db);
+  const saved = await createPhoneCode(phone);
 
   let sentBySms = false;
   try {
-    sentBySms = await sendSmsCode(phone, code);
+    sentBySms = await sendSmsCode(phone, saved.code);
   } catch (err) {
     return new Response(JSON.stringify({ error: '短信服务发送失败，请稍后重试或联系管理员配置短信服务' }), {
       status: 502,
@@ -103,8 +74,8 @@ export default async (req) => {
   return new Response(JSON.stringify({
     ok: true,
     phone,
-    expiresAt,
+    expiresAt: saved.expiresAt,
     delivery: sentBySms ? 'sms' : 'screen',
-    devCode: sentBySms ? undefined : code
+    devCode: sentBySms ? undefined : saved.code
   }), { status: 200, headers: { ...headers, 'Content-Type': 'application/json' } });
 };

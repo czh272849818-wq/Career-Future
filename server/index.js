@@ -105,6 +105,43 @@ app.post('/api/users/:id/data', (req, res) => {
   }
 });
 
+app.get('/api/chat-sessions', (req, res) => {
+  try {
+    const userId = String(req.query.userId || '').trim();
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    const data = getUserData(userId);
+    if (!data) {
+      return res.json({ userId, sessions: [], currentSessionId: null, updatedAt: null });
+    }
+    return res.json({
+      userId,
+      sessions: Array.isArray(data.chatSessions) ? data.chatSessions : [],
+      currentSessionId: data.currentSessionId || null,
+      updatedAt: data.updatedAt || null
+    });
+  } catch (err) {
+    console.error('[chat-sessions] error:', err);
+    return res.status(500).json({ error: '获取聊天记录失败' });
+  }
+});
+
+app.post('/api/chat-sessions', (req, res) => {
+  try {
+    const { userId = '', sessions = [], currentSessionId = null } = req.body || {};
+    const trimmedUserId = String(userId).trim();
+    if (!trimmedUserId) return res.status(400).json({ error: 'userId is required' });
+    const merged = upsertUserData(trimmedUserId, {
+      chatSessions: Array.isArray(sessions) ? sessions : [],
+      currentSessionId: currentSessionId || null,
+      updatedAt: new Date().toISOString()
+    });
+    return res.json({ ok: true, data: merged });
+  } catch (err) {
+    console.error('[chat-sessions save] error:', err);
+    return res.status(500).json({ error: '保存聊天记录失败' });
+  }
+});
+
 // 文件文本提取（支持 PDF / DOCX / DOC / TXT / XLSX / CSV / 图片 / MP4）
 app.post('/api/extract-text', async (req, res) => {
   const t0 = Date.now();
