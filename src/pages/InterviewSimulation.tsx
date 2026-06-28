@@ -26,11 +26,8 @@ import {
   Volume2,
   VolumeX,
   Plus,
-  Edit3,
   Trash2,
-  UserPlus,
-  ChevronDown,
-  ChevronUp
+  UserPlus
 } from 'lucide-react';
 import { useWorkflow } from '../contexts/WorkflowContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -61,6 +58,7 @@ interface InterviewResult {
   scores: Record<string, number>;
   feedback: string[];
   improvements: string[];
+  answerRecords: string[];
 }
 
 const InterviewSimulation = () => {
@@ -74,14 +72,15 @@ const InterviewSimulation = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
-  const [answers, setAnswers] = useState<string[]>([]);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [currentAnswer, setCurrentAnswer] = useState('');
+  const [speechStatus, setSpeechStatus] = useState('');
   const [timeRemaining, setTimeRemaining] = useState(180);
   const [isTimerActive, setIsTimerActive] = useState(false);
   
   // 多轮面试配置
   const [interviewRounds, setInterviewRounds] = useState<InterviewRound[]>([]);
   const [isMultiRound, setIsMultiRound] = useState(false);
-  const [showRoundConfig, setShowRoundConfig] = useState(false);
   
   // 设备状态
   const [isCameraOn, setIsCameraOn] = useState(true);
@@ -127,7 +126,7 @@ const InterviewSimulation = () => {
   };
   
   const videoRef = useRef<HTMLVideoElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const speechRecognitionRef = useRef<any>(null);
 
   // 面试类型配置
   const interviewTypes = [
@@ -230,7 +229,7 @@ const InterviewSimulation = () => {
   ];
 
   // AI接口不可用时使用的基础题库，保证训练流程不中断
-  const mockQuestions = {
+  const fallbackQuestions = {
     comprehensive: [
       // 个人基本素养
       "请用3分钟时间介绍一下你自己，包括教育背景、工作经历和个人特点。",
@@ -288,15 +287,6 @@ const InterviewSimulation = () => {
     ]
   };
 
-  // 群体面试问题
-  const groupInterviewQuestions = [
-    "假设你们是一个创业团队，需要为一个新的移动应用制定6个月的发展计划，请讨论并达成一致意见。",
-    "公司面临预算削减，你们部门需要在保持效率的同时减少20%的开支，请制定具体方案。",
-    "如何设计一个员工激励方案来提高团队士气和工作效率？",
-    "讨论如何处理一个重要客户的投诉，并制定预防类似问题的措施。",
-    "如果要在新市场推广公司产品，你们会制定什么样的营销策略？"
-  ];
-
   // 初始化摄像头
   useEffect(() => {
     if (currentStep === 'setup' || currentStep === 'rounds_config') {
@@ -321,6 +311,14 @@ const InterviewSimulation = () => {
       handleNextQuestion();
     }
   }, [isTimerActive, timeRemaining]);
+
+  useEffect(() => {
+    if (currentStep !== 'interview' || !interviewType) return;
+    const currentRound = interviewRounds[currentRoundIndex];
+    const answerKey = getAnswerKey(currentRound, currentQuestionIndex);
+    setCurrentAnswer(answers[answerKey] || '');
+    setSpeechStatus('');
+  }, [currentStep, interviewType, currentRoundIndex, currentQuestionIndex]);
 
   const initializeCamera = async () => {
     try {
@@ -358,6 +356,26 @@ const InterviewSimulation = () => {
     }
   };
 
+  const getAnswerKey = (round: InterviewRound | undefined, questionIndex: number) => {
+    if (round) return `${round.id}_${questionIndex}`;
+    return `${interviewType || 'single'}_${questionIndex}`;
+  };
+
+  const saveCurrentAnswer = () => {
+    const currentRound = interviewRounds[currentRoundIndex];
+    const answerKey = getAnswerKey(currentRound, currentQuestionIndex);
+    const value = currentAnswer.trim();
+    setAnswers(prev => {
+      if (!value) {
+        const next = { ...prev };
+        delete next[answerKey];
+        return next;
+      }
+      return { ...prev, [answerKey]: value };
+    });
+    return value ? { key: answerKey, value } : null;
+  };
+
   const startInterview = (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements') => {
     if (!isAuthenticated) {
       navigate('/login');
@@ -392,22 +410,61 @@ const InterviewSimulation = () => {
 
   const startRecording = () => {
     setIsRecording(true);
-    // 这里可以添加实际的录音逻辑
+    setSpeechStatus('');
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setSpeechStatus('当前浏览器不支持语音转文字，请直接在下方输入回答。');
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'zh-CN';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    let finalTranscript = currentAnswer ? `${currentAnswer}\n` : '';
+
+    recognition.onresult = (event: any) => {
+      let interimTranscript = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+      setCurrentAnswer(`${finalTranscript}${interimTranscript}`.trim());
+    };
+
+    recognition.onerror = () => {
+      setSpeechStatus('语音识别不可用，请改用手动输入。');
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    speechRecognitionRef.current = recognition;
+    recognition.start();
   };
 
   const stopRecording = () => {
     setIsRecording(false);
-    // 保存当前答案
-    const newAnswers = [...answers];
-    newAnswers[currentQuestionIndex] = `答案 ${currentQuestionIndex + 1}`;
-    setAnswers(newAnswers);
+    if (speechRecognitionRef.current) {
+      speechRecognitionRef.current.stop();
+      speechRecognitionRef.current = null;
+    }
+    saveCurrentAnswer();
   };
 
   const handleNextQuestion = () => {
     if (!interviewType) return;
+    saveCurrentAnswer();
     
     const currentRound = interviewRounds[currentRoundIndex];
-    const questions = currentRound ? currentRound.questions : (llmQuestions[interviewType] || mockQuestions[interviewType]);
+    const questions = currentRound ? currentRound.questions : (llmQuestions[interviewType] || fallbackQuestions[interviewType]);
     
     if (currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex(prev => prev + 1);
@@ -427,16 +484,30 @@ const InterviewSimulation = () => {
   };
 
   const completeInterview = () => {
+    const savedAnswer = saveCurrentAnswer();
     setIsTimerActive(false);
     setIsRecording(false);
+    if (speechRecognitionRef.current) {
+      speechRecognitionRef.current.stop();
+      speechRecognitionRef.current = null;
+    }
 
     const currentRound = interviewRounds[currentRoundIndex];
-    const questions = currentRound ? currentRound.questions : (interviewType ? (llmQuestions[interviewType] || mockQuestions[interviewType]) : []);
-    const answeredCount = answers.filter(Boolean).length;
+    const questions = currentRound ? currentRound.questions : (interviewType ? (llmQuestions[interviewType] || fallbackQuestions[interviewType]) : []);
+    const allAnswers = {
+      ...answers,
+      ...(savedAnswer ? { [savedAnswer.key]: savedAnswer.value } : {})
+    };
+    const answeredValues = Object.values(allAnswers).filter(Boolean);
+    const answeredCount = new Set(answeredValues).size;
+    const averageLength = answeredValues.length
+      ? Math.round(answeredValues.reduce((sum, item) => sum + item.length, 0) / answeredValues.length)
+      : 0;
     const completionRate = questions.length ? Math.round((answeredCount / questions.length) * 100) : 70;
+    const evidenceScore = Math.max(0, Math.min(25, Math.round(averageLength / 12)));
     const targetBonus = selectedJob ? 8 : 0;
     const assessmentBonus = assessmentData?.traits?.length ? 6 : 0;
-    const overallScore = Math.max(55, Math.min(95, Math.round(completionRate * 0.55 + 28 + targetBonus + assessmentBonus)));
+    const overallScore = Math.max(55, Math.min(95, Math.round(completionRate * 0.45 + evidenceScore + 20 + targetBonus + assessmentBonus)));
 
     const result: InterviewResult = {
       type: interviewType,
@@ -457,7 +528,7 @@ const InterviewSimulation = () => {
       },
       feedback: [
         selectedJob ? `回答已围绕「${selectedJob.title}」展开，岗位聚焦度更高` : '建议先选择目标岗位，再进行针对性面试训练',
-        `本次完成 ${answeredCount}/${questions.length || 1} 个问题，完成度 ${completionRate}%`,
+        `本次记录 ${answeredCount}/${questions.length || 1} 个回答，平均回答长度 ${averageLength || 0} 字`,
         assessmentData?.traits?.length ? `已结合职业画像优势：${assessmentData.traits.slice(0, 3).join('、')}` : '职业画像信息不足，建议先完成测评',
         '能完成完整面试流程，具备继续迭代表达素材的基础',
         ...(isMultiRound && interviewRounds.some(r => r.type === 'group') ? [
@@ -472,7 +543,8 @@ const InterviewSimulation = () => {
         ...(isMultiRound && interviewRounds.some(r => r.type === 'group') ? [
           '群体讨论中先复述共识，再提出分歧方案'
         ] : [])
-      ]
+      ],
+      answerRecords: answeredValues
     };
     
     setInterviewResult(result);
@@ -484,7 +556,9 @@ const InterviewSimulation = () => {
     setCurrentStep('setup');
     setCurrentQuestionIndex(0);
     setCurrentRoundIndex(0);
-    setAnswers([]);
+    setAnswers({});
+    setCurrentAnswer('');
+    setSpeechStatus('');
     setInterviewResult(null);
     setIsRecording(false);
     setIsTimerActive(false);
@@ -499,6 +573,9 @@ const InterviewSimulation = () => {
       `生成时间：${interviewResult.completedAt.toLocaleString()}`,
       `目标岗位：${selectedJob ? `${selectedJob.company} / ${selectedJob.title}` : '未选择'}`,
       `总体评分：${interviewResult.overallScore}`,
+      '',
+      '回答记录：',
+      ...interviewResult.answerRecords.map((item, index) => `Q${index + 1}: ${item}`),
       '',
       '分项评分：',
       ...Object.entries(interviewResult.scores).map(([name, score]) => `- ${name}: ${score}`),
@@ -946,7 +1023,7 @@ const InterviewSimulation = () => {
   // 面试进行中
   if (currentStep === 'interview' && interviewType) {
     const currentRound = interviewRounds[currentRoundIndex];
-    const questions = currentRound ? currentRound.questions : (llmQuestions[interviewType] || mockQuestions[interviewType]);
+    const questions = currentRound ? currentRound.questions : (llmQuestions[interviewType] || fallbackQuestions[interviewType]);
     const currentQuestion = questions[currentQuestionIndex];
     const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
     const isGroupInterview = currentRound?.type === 'group';
@@ -1082,6 +1159,20 @@ const InterviewSimulation = () => {
                       </>
                     )}
                   </button>
+                </div>
+                <div className="mt-5">
+                  <label className="mb-2 block text-sm font-medium text-gray-300">回答记录</label>
+                  <textarea
+                    value={currentAnswer}
+                    onChange={(e) => setCurrentAnswer(e.target.value)}
+                    onBlur={saveCurrentAnswer}
+                    rows={5}
+                    placeholder="点击“开始回答”可尝试语音转文字；也可以直接输入你的回答。系统会基于真实回答生成评分与报告。"
+                    className="w-full rounded-xl border border-gray-600 bg-gray-900/80 p-4 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                  />
+                  {speechStatus && (
+                    <p className="mt-2 text-xs text-yellow-300">{speechStatus}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1380,8 +1471,10 @@ const InterviewSimulation = () => {
                         <Volume2 className="h-5 w-5 text-gray-400 mr-2" />
                         <span className="text-gray-300">扬声器</span>
                       </div>
-                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-900/30 text-green-400">
-                        正常
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        isSpeakerOn ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'
+                      }`}>
+                        {isSpeakerOn ? '正常' : '关闭'}
                       </span>
                     </div>
                   </div>

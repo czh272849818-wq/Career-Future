@@ -36,6 +36,35 @@ if (!API_KEY) {
   console.warn('[DeepSeek] Missing DEEPSEEK_API_KEY in environment');
 }
 
+async function sendSmsCode(phone, code) {
+  if (process.env.SMS_PROVIDER !== 'twilio') return false;
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_FROM_NUMBER;
+  if (!sid || !token || !from) return false;
+
+  const body = new URLSearchParams({
+    To: phone,
+    From: from,
+    Body: `职向未来验证码：${code}，10分钟内有效。`
+  });
+
+  const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString('base64')}`,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(text || '短信发送失败');
+  }
+  return true;
+}
+
 // 初始化演示账户
 const demoUser = ensureDemoUser();
 
@@ -70,18 +99,17 @@ app.post('/api/auth/login', (req, res) => {
   }
 });
 
-app.post('/api/auth/phone-code', (req, res) => {
+app.post('/api/auth/phone-code', async (req, res) => {
   try {
     const { phone = '' } = req.body || {};
     const result = createPhoneCode(phone);
-    const hasSmsProvider = Boolean(process.env.SMS_PROVIDER);
-    if (hasSmsProvider) console.warn('[auth/phone-code] SMS_PROVIDER is set but no SMS adapter is implemented yet');
+    const sentBySms = await sendSmsCode(result.phone, result.code);
     return res.json({
       ok: true,
       phone: result.phone,
       expiresAt: result.expiresAt,
-      delivery: hasSmsProvider ? 'sms' : 'screen',
-      devCode: hasSmsProvider ? undefined : result.code
+      delivery: sentBySms ? 'sms' : 'screen',
+      devCode: sentBySms ? undefined : result.code
     });
   } catch (err) {
     if (String(err?.message) === 'INVALID_PHONE') return res.status(400).json({ error: '请输入有效的中国大陆手机号' });

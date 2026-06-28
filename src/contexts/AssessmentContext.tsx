@@ -171,7 +171,7 @@ const industryPositions = {
 
 // 针对不同岗位的专业测评题目
 const getIndustryQuestions = (industry: string, position: string) => {
-  const baseQuestions = [
+  const industryBaseQuestions = [
     {
       id: 'industry_1',
       question: `作为${position}，您认为最重要的核心能力是什么？`,
@@ -267,10 +267,10 @@ const getIndustryQuestions = (industry: string, position: string) => {
     }
   ];
   
-  return [...mockQuestions, ...baseQuestions];
+  return [...industryBaseQuestions, ...standardQuestions];
 };
 
-const mockQuestions: AssessmentQuestion[] = [
+const standardQuestions: AssessmentQuestion[] = [
   {
     id: '1',
     question: '在团队项目中，你更倾向于什么角色？',
@@ -587,7 +587,7 @@ export function AssessmentProvider({ children }: { children: React.ReactNode }) 
           try {
             const fallbackAll = type === 'industry'
               ? getIndustryQuestions(industry || '', position || '')
-              : mockQuestions;
+              : standardQuestions;
             const fallback8 = fallbackAll.slice(0, 8);
             if (fallback8.length > 0) {
               setCurrentAssessment(fallback8);

@@ -49,19 +49,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     ? (crypto as any).randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-  // 预设的AI回复模板
-  const aiResponses = [
-    "根据您的情况，我建议您可以考虑以下几个方向：\n\n1. **技能提升**：重点关注数据分析和项目管理能力\n2. **行业选择**：互联网和金融科技领域有很好的发展前景\n3. **职业路径**：可以从产品助理开始，逐步向产品经理发展",
-    
-    "让我为您分析一下当前的职业发展趋势：\n\n📈 **热门领域**：AI、数据科学、产品管理\n💡 **核心技能**：跨部门协作、用户思维、数据驱动决策\n🎯 **发展建议**：建议您先完善基础技能，再考虑专业化发展",
-    
-    "基于您的背景，我推荐以下学习路径：\n\n**短期目标（3-6个月）**：\n- 完成产品管理相关课程\n- 参与1-2个实际项目\n\n**中期目标（6-12个月）**：\n- 建立个人作品集\n- 扩展行业人脉网络",
-    
-    "您提到的问题很有价值。让我从几个角度来分析：\n\n🔍 **市场需求**：该领域人才缺口较大\n📊 **薪资水平**：相比传统行业有20-30%的提升空间\n⚡ **发展速度**：新兴行业变化快，学习能力很重要",
-    
-    "关于职业转型，我的建议是：\n\n1. **评估现有技能**：找出可迁移的核心能力\n2. **补强关键技能**：针对目标岗位的要求进行学习\n3. **寻找过渡机会**：可以考虑内部转岗或相关项目经验\n4. **建立新的人脉**：参加行业活动和专业社群"
-  ];
-
   const [model, setModel] = useState<string>(DEFAULT_LLM_MODEL);
   const [temperature, setTemperature] = useState<number>(DEFAULT_TEMPERATURE);
   const [streamEnabled, setStreamEnabled] = useState<boolean>(DEFAULT_STREAM);

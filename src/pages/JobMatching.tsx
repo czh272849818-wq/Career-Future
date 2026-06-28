@@ -32,61 +32,27 @@ const JobMatching = () => {
   const [positions, setPositions] = useState<string[]>([]);
   const [taxonomyLoading, setTaxonomyLoading] = useState(false);
 
-  // AI接口不可用时的兜底岗位，保证用户流程不中断
-  const mockJobs = [
-    {
-      id: '1',
-      title: '高级产品经理',
-      company: '腾讯科技',
-      matchScore: 95,
-      description: '负责产品规划、需求分析和用户体验优化',
-      requirements: ['3-5年产品经验', '数据分析能力', '用户研究经验'],
-      salary: '25-40K',
-      location: '深圳',
-      industry: '互联网',
-      isNew: true,
-      isUrgent: false
-    },
-    {
-      id: '2',
-      title: 'AI产品专家',
-      company: '字节跳动',
-      matchScore: 92,
-      description: '负责AI产品的策略制定和落地执行',
-      requirements: ['AI产品经验', '技术理解能力', '项目管理经验'],
-      salary: '30-50K',
-      location: '北京',
-      industry: '人工智能',
-      isNew: false,
-      isUrgent: true
-    },
-    {
-      id: '3',
-      title: '数据产品经理',
-      company: '阿里巴巴',
-      matchScore: 88,
-      description: '负责数据产品的设计和商业化',
-      requirements: ['数据分析背景', '商业敏感度', 'SQL能力'],
-      salary: '28-45K',
-      location: '杭州',
-      industry: '电商',
-      isNew: true,
-      isUrgent: false
-    },
-    {
-      id: '4',
-      title: '产品运营经理',
-      company: '美团',
-      matchScore: 85,
-      description: '负责产品运营策略和用户增长',
-      requirements: ['运营经验', '数据驱动思维', '用户洞察能力'],
-      salary: '20-35K',
-      location: '北京',
-      industry: '生活服务',
-      isNew: false,
-      isUrgent: false
-    }
-  ];
+  const buildLocalRecommendations = () => {
+    const major = assessmentData.major || '你的专业背景';
+    const targetIndustry = filterIndustry || assessmentData.industry || '目标行业';
+    const traitText = assessmentData.traits?.slice(0, 2).join('、') || '可迁移能力';
+    const baseTitles = positions.length > 0
+      ? positions.slice(0, 4)
+      : ['业务分析专员', '产品运营专员', '项目执行专员', '客户成功顾问'];
+
+    return baseTitles.map((title, index) => ({
+      id: `local-${index + 1}`,
+      title,
+      company: '职业方向建议',
+      matchScore: Math.max(72, 86 - index * 4),
+      description: `基于${major}、${traitText}与当前测评信息生成的职业方向，不代表真实招聘职位。`,
+      requirements: ['补充岗位作品集', '准备量化项目案例', '提升行业认知', '验证真实招聘需求'],
+      salary: '需以招聘平台为准',
+      location: '按目标城市筛选',
+      industry: targetIndustry,
+      isLocalFallback: true
+    }));
+  };
 
   // 拉取行业列表（DeepSeek Taxonomy）
   useEffect(() => {
@@ -215,10 +181,14 @@ const JobMatching = () => {
         industry: item.industry || item.行业 || '未指定'
       }));
 
+      if (jobs.length === 0) throw new Error('AI未返回有效岗位推荐');
       setRecommendedJobs(jobs);
       setCurrentStep(3);
     } catch (e: any) {
-      setError(e.message || '生成岗位推荐失败');
+      const fallbackJobs = buildLocalRecommendations();
+      setRecommendedJobs(fallbackJobs);
+      setCurrentStep(3);
+      setError(`${e.message || '生成岗位推荐失败'}，已切换为本地职业方向建议。`);
     } finally {
       setLoading(false);
     }
@@ -261,7 +231,7 @@ const JobMatching = () => {
     growth: Math.max(50, Math.min(99, score + 3))
   });
 
-  const jobsSource = (recommendedJobs && recommendedJobs.length > 0) ? recommendedJobs : mockJobs;
+  const jobsSource = (recommendedJobs && recommendedJobs.length > 0) ? recommendedJobs : buildLocalRecommendations();
   const filteredJobs = jobsSource.filter(job => {
     const cityMatch = !filterCity || job.location.includes(filterCity);
     const industryMatch = !filterIndustry || job.industry.includes(filterIndustry);
@@ -389,6 +359,11 @@ const JobMatching = () => {
                 <div className="flex-1">
                   <div className="flex items-center space-x-3 mb-2">
                     <h3 className="text-xl font-bold text-white">{job.title}</h3>
+                    {job.isLocalFallback && (
+                      <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded-full">
+                        方向建议
+                      </span>
+                    )}
                     {job.isNew && (
                       <span className="px-2 py-1 bg-green-600 text-white text-xs rounded-full">
                         新发布

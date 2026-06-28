@@ -114,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const resp = await fetch(apiUrl('/api/auth/wechat/start'));
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok || !data.url) {
-      throw new Error(data.error || '微信登录暂未完成配置');
+      throw new Error(data.error || '微信登录需要先配置微信开放平台参数');
     }
     window.location.href = data.url;
   };

@@ -92,7 +92,7 @@ const Login = () => {
     try {
       await startWechatLogin();
     } catch (err: any) {
-      setError(err.message || '微信登录暂未完成配置');
+      setError(err.message || '微信登录需要先配置微信开放平台参数');
       setLoading('');
     }
   };
@@ -195,7 +195,7 @@ const Login = () => {
                   </div>
                   {devCode && (
                     <p className="mt-2 text-xs text-emerald-300">
-                      当前未接短信服务商，测试验证码：{devCode}
+                      当前为本地验证模式，验证码：{devCode}
                     </p>
                   )}
                 </div>

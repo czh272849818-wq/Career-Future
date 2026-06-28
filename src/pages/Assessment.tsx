@@ -34,6 +34,7 @@ const Assessment = () => {
   const [showResult, setShowResult] = useState(false);
   const [currentResult, setCurrentResult] = useState<any>(null);
   const [showHint, setShowHint] = useState<string>('');
+  const [industryValidationError, setIndustryValidationError] = useState('');
   const [timeRemaining, setTimeRemaining] = useState(45);
   const [isTimerActive, setIsTimerActive] = useState(false);
   const [showAdditionalInfo, setShowAdditionalInfo] = useState(false);
@@ -284,10 +285,10 @@ const Assessment = () => {
       return;
     }
     if (!selectedIndustryLocal || !selectedPositionLocal) {
-      // 简单提示；也可改为更精致的UI提示
-      alert('请先选择行业和二级岗位');
+      setIndustryValidationError('请先选择行业和二级岗位，再开始专项测评。');
       return;
     }
+    setIndustryValidationError('');
     setSelectedType('industry');
     startAssessment('industry', selectedIndustryLocal, selectedPositionLocal);
     setShowResult(false);
@@ -1454,6 +1455,7 @@ const Assessment = () => {
                     onChange={(e) => {
                       setSelectedIndustryLocal(e.target.value);
                       setSelectedPositionLocal('');
+                      setIndustryValidationError('');
                     }}
                     className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white"
                   >
@@ -1467,7 +1469,10 @@ const Assessment = () => {
                   <label className="block text-sm font-medium text-gray-300 mb-2">二级行业/岗位</label>
                   <select
                     value={selectedPositionLocal}
-                    onChange={(e) => setSelectedPositionLocal(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedPositionLocal(e.target.value);
+                      setIndustryValidationError('');
+                    }}
                     disabled={!selectedIndustryLocal}
                     className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white disabled:opacity-50"
                   >
@@ -1479,7 +1484,9 @@ const Assessment = () => {
                     ))}
                   </select>
                 </div>
-                <p className="text-xs text-gray-400">{taxError || '选择行业与二级岗位后，再开始专项测评'}</p>
+                <p className={`text-xs ${industryValidationError || taxError ? 'text-yellow-300' : 'text-gray-400'}`}>
+                  {industryValidationError || taxError || '选择行业与二级岗位后，再开始专项测评'}
+                </p>
               </div>
               
               <button
