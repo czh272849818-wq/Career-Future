@@ -91,6 +91,7 @@ const InterviewSimulation = () => {
   const [interviewResult, setInterviewResult] = useState<InterviewResult | null>(null);
   const [llmQuestions, setLlmQuestions] = useState<Record<string, string[]>>({});
   const [generating, setGenerating] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   
   const generateInterviewQuestions = async (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements') => {
     try {
@@ -126,7 +127,12 @@ const InterviewSimulation = () => {
   };
   
   const videoRef = useRef<HTMLVideoElement>(null);
-  const speechRecognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const transcriberPromiseRef = useRef<Promise<any> | null>(null);
+  const stopResolveRef = useRef<(() => void) | null>(null);
+  const stopPromiseRef = useRef<Promise<void> | null>(null);
 
   // 面试类型配置
   const interviewTypes = [
@@ -320,6 +326,8 @@ const InterviewSimulation = () => {
     setSpeechStatus('');
   }, [currentStep, interviewType, currentRoundIndex, currentQuestionIndex]);
 
+  useEffect(() => () => releaseMedia(), []);
+
   const initializeCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -376,6 +384,95 @@ const InterviewSimulation = () => {
     return value ? { key: answerKey, value } : null;
   };
 
+  const getTranscriber = async () => {
+    if (!transcriberPromiseRef.current) {
+      transcriberPromiseRef.current = (async () => {
+        const { pipeline } = await import('@xenova/transformers');
+        return pipeline('automatic-speech-recognition', 'Xenova/whisper-small');
+      })();
+    }
+    return transcriberPromiseRef.current;
+  };
+
+  const resampleAudio = (audioData: Float32Array, sourceRate: number, targetRate = 16000) => {
+    if (sourceRate === targetRate) return audioData;
+    const ratio = sourceRate / targetRate;
+    const newLength = Math.max(1, Math.round(audioData.length / ratio));
+    const result = new Float32Array(newLength);
+
+    for (let i = 0; i < newLength; i += 1) {
+      const position = i * ratio;
+      const leftIndex = Math.floor(position);
+      const rightIndex = Math.min(leftIndex + 1, audioData.length - 1);
+      const weight = position - leftIndex;
+      result[i] = audioData[leftIndex] * (1 - weight) + audioData[rightIndex] * weight;
+    }
+
+    return result;
+  };
+
+  const decodeAudioBlob = async (blob: Blob) => {
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioContext = new AudioContext();
+    try {
+      const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+      const channels = decoded.numberOfChannels;
+      const mixed = new Float32Array(decoded.length);
+
+      for (let channel = 0; channel < channels; channel += 1) {
+        const data = decoded.getChannelData(channel);
+        for (let i = 0; i < data.length; i += 1) {
+          mixed[i] += data[i] / channels;
+        }
+      }
+
+      return resampleAudio(mixed, decoded.sampleRate, 16000);
+    } finally {
+      await audioContext.close().catch(() => {});
+    }
+  };
+
+  const releaseMedia = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
+    }
+    mediaRecorderRef.current = null;
+    setIsRecording(false);
+  };
+
+  const transcribeAudio = async (blob: Blob) => {
+    setIsTranscribing(true);
+    setSpeechStatus('正在识别语音...');
+    try {
+      const audio = await decodeAudioBlob(blob);
+      const transcriber = await getTranscriber();
+      const output = await transcriber(audio, {
+        language: 'zh',
+        task: 'transcribe',
+        return_timestamps: false
+      });
+      const text = String(output?.text || '').trim();
+      if (text) {
+        setCurrentAnswer(prev => (prev.trim() ? `${prev.trim()} ${text}` : text));
+        setSpeechStatus('语音已转写');
+      } else {
+        setSpeechStatus('未识别到有效语音');
+      }
+    } catch (error) {
+      console.error('[interview speech] transcribe failed:', error);
+      setSpeechStatus('语音转写失败，请改用手动输入。');
+    } finally {
+      setIsTranscribing(false);
+      const resolve = stopResolveRef.current;
+      stopResolveRef.current = null;
+      stopPromiseRef.current = null;
+      resolve?.();
+      releaseMedia();
+      setTimeout(() => setSpeechStatus(''), 2500);
+    }
+  };
+
   const startInterview = (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements') => {
     if (!isAuthenticated) {
       navigate('/login');
@@ -408,59 +505,75 @@ const InterviewSimulation = () => {
     }
   };
 
-  const startRecording = () => {
-    setIsRecording(true);
-    setSpeechStatus('');
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setSpeechStatus('当前浏览器不支持语音转文字，请直接在下方输入回答。');
+  const startRecording = async () => {
+    if (isTranscribing) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setSpeechStatus('当前浏览器不支持麦克风访问。');
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'zh-CN';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    let finalTranscript = currentAnswer ? `${currentAnswer}\n` : '';
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      audioChunksRef.current = [];
 
-    recognition.onresult = (event: any) => {
-      let interimTranscript = '';
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript;
-        } else {
-          interimTranscript += transcript;
+      const recorder = new MediaRecorder(
+        stream,
+        MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? { mimeType: 'audio/webm;codecs=opus' }
+          : undefined
+      );
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
         }
-      }
-      setCurrentAnswer(`${finalTranscript}${interimTranscript}`.trim());
-    };
+      };
 
-    recognition.onerror = () => {
-      setSpeechStatus('语音识别不可用，请改用手动输入。');
-      setIsRecording(false);
-    };
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        audioChunksRef.current = [];
+        void transcribeAudio(blob);
+      };
 
-    recognition.onend = () => {
-      setIsRecording(false);
-    };
-
-    speechRecognitionRef.current = recognition;
-    recognition.start();
-  };
-
-  const stopRecording = () => {
-    setIsRecording(false);
-    if (speechRecognitionRef.current) {
-      speechRecognitionRef.current.stop();
-      speechRecognitionRef.current = null;
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecording(true);
+      setSpeechStatus('录音中，再次点击可停止并转写。');
+    } catch (error) {
+      console.error('[interview speech] microphone access failed:', error);
+      setSpeechStatus('麦克风权限未开启，请允许后重试。');
+      releaseMedia();
     }
-    saveCurrentAnswer();
   };
 
-  const handleNextQuestion = () => {
+  const stopRecording = async () => {
+    if (stopPromiseRef.current) {
+      await stopPromiseRef.current;
+      return;
+    }
+    if (isTranscribing) return;
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === 'inactive') {
+      releaseMedia();
+      return;
+    }
+
+    if (!stopPromiseRef.current) {
+      stopPromiseRef.current = new Promise<void>((resolve) => {
+        stopResolveRef.current = resolve;
+      });
+      recorder.stop();
+    }
+
+    await stopPromiseRef.current;
+  };
+
+  const handleNextQuestion = async () => {
     if (!interviewType) return;
+    if (isRecording || stopPromiseRef.current) {
+      await stopRecording();
+    }
     saveCurrentAnswer();
     
     const currentRound = interviewRounds[currentRoundIndex];
@@ -483,14 +596,14 @@ const InterviewSimulation = () => {
     }
   };
 
-  const completeInterview = () => {
+  const completeInterview = async () => {
+    if (isRecording || stopPromiseRef.current) {
+      await stopRecording();
+    }
     const savedAnswer = saveCurrentAnswer();
     setIsTimerActive(false);
     setIsRecording(false);
-    if (speechRecognitionRef.current) {
-      speechRecognitionRef.current.stop();
-      speechRecognitionRef.current = null;
-    }
+    releaseMedia();
 
     const currentRound = interviewRounds[currentRoundIndex];
     const questions = currentRound ? currentRound.questions : (interviewType ? (llmQuestions[interviewType] || fallbackQuestions[interviewType]) : []);
@@ -1140,12 +1253,13 @@ const InterviewSimulation = () => {
                   </button>
                   
                   <button
-                    onClick={isRecording ? stopRecording : startRecording}
+                    onClick={() => { void (isRecording ? stopRecording() : startRecording()); }}
+                    disabled={isTranscribing}
                     className={`px-6 py-3 rounded-full font-semibold transition-all duration-200 ${
                       isRecording
                         ? 'bg-red-600 hover:bg-red-700 text-white'
                         : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white'
-                    }`}
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     {isRecording ? (
                       <>
@@ -1289,7 +1403,8 @@ const InterviewSimulation = () => {
               {/* 下一题按钮 */}
               <button
                 onClick={handleNextQuestion}
-                className="w-full inline-flex items-center justify-center px-6 py-3 bg-gradient-to-r from-green-600 to-blue-600 text-white font-semibold rounded-lg hover:from-green-700 hover:to-blue-700 transition-all duration-200"
+                disabled={isTranscribing}
+                className="w-full inline-flex items-center justify-center px-6 py-3 bg-gradient-to-r from-green-600 to-blue-600 text-white font-semibold rounded-lg hover:from-green-700 hover:to-blue-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {currentQuestionIndex < questions.length - 1 
                   ? '下一题' 
