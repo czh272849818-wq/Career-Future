@@ -23,8 +23,21 @@ export default async (request, context) => {
     return new Response(JSON.stringify({ error: "Missing DEEPSEEK_API_KEY" }), { status: 500, headers });
   }
 
-  const { messages, model = "deepseek-chat", temperature = 0.7, stream = true } = body;
+  const { messages, attachmentContext = [], model = "deepseek-chat", temperature = 0.7, stream = true } = body;
   const upstreamUrl = "https://api.deepseek.com/v1/chat/completions";
+  const attachmentText = Array.isArray(attachmentContext) && attachmentContext.length
+    ? attachmentContext.map((item) => {
+        if (!item) return "";
+        const name = item.name || "unknown";
+        const type = item.type || "unknown";
+        const size = typeof item.size === "number" ? `${(item.size / 1024 / 1024).toFixed(2)} MB` : "unknown size";
+        const text = String(item.text || "").trim();
+        return [`- ${name} (${type}, ${size})`, text ? `  内容: ${text}` : ""].filter(Boolean).join("\n");
+      }).filter(Boolean).join("\n")
+    : "";
+  const upstreamMessages = attachmentText
+    ? [messages[0], { role: "system", content: `附件上下文仅供参考，不要在回答中逐字复述，只提炼与用户问题相关的信息：\n${attachmentText}` }, ...messages.slice(1)]
+    : messages;
   const upstreamInit = {
     method: "POST",
     headers: {
@@ -32,7 +45,7 @@ export default async (request, context) => {
       Authorization: `Bearer ${apiKey}`,
       ...(stream ? { Accept: "text/event-stream" } : {}),
     },
-    body: JSON.stringify({ model, messages, temperature, stream }),
+    body: JSON.stringify({ model, messages: upstreamMessages, temperature, stream }),
   };
 
   if (stream) {
