@@ -1,6 +1,6 @@
 // 按需动态加载依赖，避免在未安装依赖时顶层初始化失败导致 502
 
-// Netlify Node Function: 简历文本提取（支持 TXT / DOCX / DOC / PDF / 图片OCR）
+// Netlify Node Function: 文本提取（支持 TXT / DOCX / DOC / PDF / XLSX / CSV / 图片OCR / MP4元数据）
 export default async (req) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -15,11 +15,31 @@ export default async (req) => {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers });
   }
 
+  const contentType = req.headers.get('content-type') || '';
+  const isMultipart = contentType.includes('multipart/form-data');
   let body;
-  try {
-    body = await req.json();
-  } catch (_) {
-    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers });
+  let formFile;
+  if (isMultipart) {
+    try {
+      const formData = await req.formData();
+      formFile = formData.get('file');
+      if (!formFile || typeof formFile === 'string') {
+        return new Response(JSON.stringify({ error: 'missing file' }), { status: 400, headers });
+      }
+      body = {
+        fileName: formFile.name || '',
+        mimeType: formFile.type || '',
+        dataBase64: Buffer.from(await formFile.arrayBuffer()).toString('base64')
+      };
+    } catch (err) {
+      return new Response(JSON.stringify({ error: 'Invalid multipart form data', details: String(err) }), { status: 400, headers });
+    }
+  } else {
+    try {
+      body = await req.json();
+    } catch (_) {
+      return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers });
+    }
   }
 
   const t0 = Date.now();
@@ -51,6 +71,32 @@ export default async (req) => {
       } catch (ocrErr) {
         console.warn('[OCR] image ocr failed:', ocrErr);
         return new Response(JSON.stringify({ error: 'ocr failed', details: String(ocrErr) }), { status: 500, headers });
+      }
+    }
+
+    // MP4 仅返回文件摘要，避免把二进制误读成文本
+    if (mimeType === 'video/mp4' || lowerName.endsWith('.mp4')) {
+      const text = `[视频附件] ${fileName}，大小 ${(buf.length / 1024 / 1024).toFixed(2)} MB。当前仅提取元信息，未做音视频转写。`;
+      return new Response(JSON.stringify({ text, method: 'mp4-meta' }), { headers });
+    }
+
+    // CSV / XLSX
+    if (lowerName.endsWith('.csv') || mimeType.includes('csv')) {
+      const text = buf.toString('utf-8');
+      return new Response(JSON.stringify({ text, method: 'csv' }), { headers });
+    }
+    if (lowerName.endsWith('.xlsx') || mimeType.includes('spreadsheetml.sheet') || lowerName.endsWith('.xls')) {
+      try {
+        const xlsxModule = await import('xlsx');
+        const XLSX = xlsxModule.default || xlsxModule;
+        const workbook = XLSX.read(buf, { type: 'buffer' });
+        const sheet = workbook.SheetNames[0];
+        const json = sheet ? XLSX.utils.sheet_to_json(workbook.Sheets[sheet], { header: 1 }) : [];
+        const text = Array.isArray(json) ? json.map(row => Array.isArray(row) ? row.join('\t') : String(row)).join('\n') : '';
+        return new Response(JSON.stringify({ text, method: 'xlsx' }), { headers });
+      } catch (xlsxErr) {
+        console.warn('[XLSX] parse failed:', xlsxErr);
+        return new Response(JSON.stringify({ error: 'xlsx parse failed', details: String(xlsxErr) }), { status: 500, headers });
       }
     }
 

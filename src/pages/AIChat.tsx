@@ -14,6 +14,7 @@ const AIChat = () => {
     createNewSession,
     switchSession,
     sendMessage,
+    sendMessageWithAttachments,
     clearCurrentSession,
     deleteSession,
     // settings
@@ -29,6 +30,31 @@ const AIChat = () => {
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleSendMessage = async (message: string, attachments: Array<{ name: string; type: string; size: number; text?: string; dataUrl?: string }>) => {
+    const parsed = await Promise.all(attachments.map(async (file) => {
+      if (file.text && file.text.trim()) return file;
+      if (file.dataUrl && (file.type.startsWith('image/') || file.type === 'video/mp4')) {
+        return { ...file, text: file.type.startsWith('image/') ? `[图片] ${file.name}` : `[视频] ${file.name}` };
+      }
+      const resp = await fetch('/.netlify/functions/extract-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type,
+          dataBase64: file.dataUrl ? String(file.dataUrl).split(',')[1] || '' : ''
+        })
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(text || '附件解析失败');
+      }
+      const data = await resp.json().catch(() => ({}));
+      return { ...file, text: data.text || '' };
+    }));
+    await sendMessageWithAttachments(message || '请结合附件内容给出分析。', parsed as any);
   };
 
   useEffect(() => {
@@ -199,7 +225,7 @@ const AIChat = () => {
         {/* Input Area */}
         {currentSession && (
           <ChatInput
-            onSendMessage={sendMessage}
+            onSendMessage={handleSendMessage}
             disabled={isTyping}
             placeholder="请输入您的职业问题..."
           />

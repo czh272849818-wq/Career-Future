@@ -11,6 +11,14 @@ interface Message {
   type?: 'text' | 'suggestion' | 'analysis';
 }
 
+interface ChatAttachment {
+  name: string;
+  type: string;
+  size: number;
+  text?: string;
+  dataUrl?: string;
+}
+
 interface ChatSession {
   id: string;
   title: string;
@@ -26,6 +34,7 @@ interface ChatContextType {
   createNewSession: () => void;
   switchSession: (sessionId: string) => void;
   sendMessage: (content: string) => Promise<void>;
+  sendMessageWithAttachments: (content: string, attachments: ChatAttachment[]) => Promise<void>;
   clearCurrentSession: () => void;
   deleteSession: (sessionId: string) => void;
   // settings
@@ -81,6 +90,20 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const sendMessageWithAttachments = async (content: string, attachments: ChatAttachment[]) => {
+    const attachmentSummary = attachments.length
+      ? attachments.map(item => `- ${item.name} (${item.type || 'unknown'}, ${(item.size / 1024 / 1024).toFixed(2)} MB)`).join('\n')
+      : '';
+    const attachmentText = attachments
+      .map(item => item.text || '')
+      .filter(Boolean)
+      .join('\n\n');
+    const mergedContent = [content.trim(), attachmentSummary ? `附件:\n${attachmentSummary}` : '', attachmentText ? `附件内容:\n${attachmentText}` : '']
+      .filter(Boolean)
+      .join('\n\n');
+    await sendMessage(mergedContent);
+  };
+
   const sendMessage = async (content: string) => {
     if (!currentSession || !content.trim()) return;
 
@@ -109,7 +132,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         .filter(m => m.id !== 'welcome')
         .slice(-MAX_CONTEXT_MESSAGES);
       const apiMessages = [
-        { role: 'system', content: '你是一位专业的中文职业规划顾问，请用清晰、结构化的方式回答。' },
+        { role: 'system', content: '你是一位专业的中文职业规划顾问，请用清晰、结构化的方式回答。如果用户提供了附件，请结合附件中的内容作答，并指出你使用了哪些文件信息。' },
         ...conversation.map(m => ({
           role: m.sender === 'user' ? 'user' : 'assistant',
           content: m.content
@@ -324,6 +347,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       createNewSession,
       switchSession,
       sendMessage,
+      sendMessageWithAttachments,
       clearCurrentSession,
       deleteSession,
       model,

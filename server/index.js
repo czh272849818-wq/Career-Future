@@ -8,6 +8,7 @@ const mammoth = require('mammoth');
 const pdfParse = require('pdf-parse');
 const WordExtractor = require('word-extractor');
 const Tesseract = require('tesseract.js');
+let XLSX = null;
 import {
   ensureDemoUser,
   createUser,
@@ -104,11 +105,23 @@ app.post('/api/users/:id/data', (req, res) => {
   }
 });
 
-// 文件文本提取（支持 PDF / DOCX / DOC / TXT）
+// 文件文本提取（支持 PDF / DOCX / DOC / TXT / XLSX / CSV / 图片 / MP4）
 app.post('/api/extract-text', async (req, res) => {
   const t0 = Date.now();
   try {
-    const { fileName = '', mimeType = '', dataBase64 = '' } = req.body || {};
+    const contentType = req.headers['content-type'] || '';
+    let fileName = '';
+    let mimeType = '';
+    let dataBase64 = '';
+
+    if (String(contentType).includes('multipart/form-data')) {
+      return res.status(400).json({ error: 'multipart form upload is handled by the client via Netlify function in production' });
+    } else {
+      const body = req.body || {};
+      fileName = body.fileName || '';
+      mimeType = body.mimeType || '';
+      dataBase64 = body.dataBase64 || '';
+    }
     if (!dataBase64) {
       console.warn(`[extract-text] 400 missing dataBase64 fileName=${fileName} mimeType=${mimeType}`);
       return res.status(400).json({ error: 'missing dataBase64' });
@@ -133,6 +146,33 @@ app.post('/api/extract-text', async (req, res) => {
       } catch (ocrErr) {
         console.warn('[OCR] image ocr failed:', ocrErr);
         return res.status(500).json({ error: 'ocr failed', details: String(ocrErr) });
+      }
+    }
+
+    if (mimeType === 'video/mp4' || lowerName.endsWith('.mp4')) {
+      const text = `[视频附件] ${fileName}，大小 ${(buf.length / 1024 / 1024).toFixed(2)} MB。当前仅提取元信息，未做音视频转写。`;
+      return res.json({ text, method: 'mp4-meta' });
+    }
+
+    if (lowerName.endsWith('.csv') || mimeType.includes('csv')) {
+      const text = buf.toString('utf-8');
+      return res.json({ text, method: 'csv' });
+    }
+
+    if (lowerName.endsWith('.xlsx') || mimeType.includes('spreadsheetml.sheet') || lowerName.endsWith('.xls')) {
+      try {
+        if (!XLSX) {
+          const xlsxModule = await import('xlsx');
+          XLSX = xlsxModule.default || xlsxModule;
+        }
+        const workbook = XLSX.read(buf, { type: 'buffer' });
+        const sheet = workbook.SheetNames[0];
+        const json = sheet ? XLSX.utils.sheet_to_json(workbook.Sheets[sheet], { header: 1 }) : [];
+        const text = Array.isArray(json) ? json.map(row => Array.isArray(row) ? row.join('\t') : String(row)).join('\n') : '';
+        return res.json({ text, method: 'xlsx' });
+      } catch (xlsxErr) {
+        console.warn('[XLSX] parse failed:', xlsxErr);
+        return res.status(500).json({ error: 'xlsx parse failed', details: String(xlsxErr) });
       }
     }
 
