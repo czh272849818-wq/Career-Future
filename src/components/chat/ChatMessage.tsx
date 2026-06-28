@@ -53,13 +53,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
       </div>
 
       {/* Message Content */}
-      <div className={`flex-1 max-w-xs sm:max-w-md lg:max-w-lg ${isAI ? '' : 'flex justify-end'}`}>
+      <div className={`flex-1 max-w-xs sm:max-w-md lg:max-w-2xl ${isAI ? '' : 'flex justify-end'}`}>
         <div className={`rounded-2xl px-4 py-3 ${
           isAI 
             ? 'bg-gray-800 border border-gray-700' 
             : 'bg-gradient-to-r from-purple-600 to-blue-600'
         }`}>
-          <div className={`text-sm leading-relaxed ${
+          <div className={`text-sm leading-relaxed break-words ${
             isAI ? 'text-gray-300' : 'text-white'
           }`}>
             {formatContent(message.content)}

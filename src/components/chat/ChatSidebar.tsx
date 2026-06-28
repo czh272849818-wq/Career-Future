@@ -36,7 +36,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   };
 
   return (
-    <div className="w-80 bg-gray-800/50 backdrop-blur-sm border-r border-gray-700 flex flex-col">
+    <div className="flex h-full w-80 flex-col overflow-hidden bg-gray-800/50 backdrop-blur-sm border-r border-gray-700">
       {/* Header */}
       <div className="p-4 border-b border-gray-700">
         <button
@@ -49,7 +49,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       </div>
 
       {/* Sessions List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="p-2">
           {sessions.map((session) => (
             <div

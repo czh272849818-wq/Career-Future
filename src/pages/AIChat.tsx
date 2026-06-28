@@ -80,12 +80,12 @@ const AIChat = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-4">
+    <div className="h-[calc(100vh-4rem)] overflow-hidden bg-gray-900 px-4 py-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-full max-w-6xl flex-col">
+        <div className="mb-4 shrink-0">
           <BackButton />
         </div>
-        <div className="flex gap-6">
+        <div className="flex min-h-0 flex-1 gap-6">
           {/* Sidebar */}
           <ChatSidebar
             sessions={sessions}
@@ -96,9 +96,9 @@ const AIChat = () => {
           />
 
           {/* Main Chat Area */}
-          <div className="flex-1 flex flex-col">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <div className="bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 p-4">
+        <div className="shrink-0 bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full flex items-center justify-center">
@@ -160,7 +160,7 @@ const AIChat = () => {
         </div>
 
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {currentSession ? (
             <div className="p-4 space-y-6">
               {currentSession.messages.map((message) => (
