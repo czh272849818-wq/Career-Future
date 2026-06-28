@@ -9,6 +9,11 @@ interface Message {
   sender: 'user' | 'ai';
   timestamp: Date;
   type?: 'text' | 'suggestion' | 'analysis';
+  attachments?: Array<{
+    name: string;
+    type: string;
+    size: number;
+  }>;
 }
 
 interface ChatMessageProps {
@@ -71,6 +76,21 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
               {message.content}
             </ReactMarkdown>
           </div>
+
+          {!isAI && message.attachments?.length ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {message.attachments.map((file, index) => (
+                <div
+                  key={`${file.name}-${index}`}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs text-white/90"
+                >
+                  <span className="max-w-40 truncate">{file.name}</span>
+                  <span className="text-white/50">·</span>
+                  <span>{file.type || 'unknown'}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
           
           {/* Timestamp */}
           <div className={`flex items-center mt-2 text-xs ${

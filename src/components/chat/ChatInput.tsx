@@ -22,28 +22,22 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const [message, setMessage] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
-  const [isListening, setIsListening] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [speechStatus, setSpeechStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const recognitionRef = useRef<any>(null);
-  const transcriptPrefixRef = useRef('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const stopSpeechRecognition = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.onend = null;
-      recognitionRef.current.onerror = null;
-      recognitionRef.current.onresult = null;
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-    }
-    setIsListening(false);
-  };
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const transcriberPromiseRef = useRef<Promise<any> | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if ((message.trim() || attachments.length > 0) && !disabled) {
-      stopSpeechRecognition();
+      if (isRecording) {
+        stopRecording();
+      }
       onSendMessage(message, attachments);
       setMessage('');
       setAttachments([]);
@@ -94,97 +88,163 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleVoiceClick = () => {
-    if (disabled) return;
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setSpeechStatus('当前浏览器不支持语音输入');
-      return;
+  const releaseMedia = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    mediaRecorderRef.current = null;
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
+    }
+    setIsRecording(false);
+  };
+
+  const getTranscriber = async () => {
+    if (!transcriberPromiseRef.current) {
+      transcriberPromiseRef.current = (async () => {
+        const { pipeline } = await import('@xenova/transformers');
+        return pipeline('automatic-speech-recognition', 'Xenova/whisper-small');
+      })();
+    }
+    return transcriberPromiseRef.current;
+  };
+
+  const resampleAudio = (audioData: Float32Array, sourceRate: number, targetRate = 16000) => {
+    if (sourceRate === targetRate) return audioData;
+    const ratio = sourceRate / targetRate;
+    const newLength = Math.max(1, Math.round(audioData.length / ratio));
+    const result = new Float32Array(newLength);
+
+    for (let i = 0; i < newLength; i += 1) {
+      const position = i * ratio;
+      const leftIndex = Math.floor(position);
+      const rightIndex = Math.min(leftIndex + 1, audioData.length - 1);
+      const weight = position - leftIndex;
+      result[i] = audioData[leftIndex] * (1 - weight) + audioData[rightIndex] * weight;
     }
 
-    if (isListening) {
-      stopSpeechRecognition();
-      setSpeechStatus('');
+    return result;
+  };
+
+  const decodeAudioBlob = async (blob: Blob) => {
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioContext = new AudioContext();
+    try {
+      const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+      const channels = decoded.numberOfChannels;
+      const mixed = new Float32Array(decoded.length);
+
+      for (let channel = 0; channel < channels; channel += 1) {
+        const data = decoded.getChannelData(channel);
+        for (let i = 0; i < data.length; i += 1) {
+          mixed[i] += data[i] / channels;
+        }
+      }
+
+      return resampleAudio(mixed, decoded.sampleRate, 16000);
+    } finally {
+      await audioContext.close().catch(() => {});
+    }
+  };
+
+  const transcribeAudio = async (blob: Blob) => {
+    setIsTranscribing(true);
+    setSpeechStatus('正在识别语音...');
+    try {
+      const audio = await decodeAudioBlob(blob);
+      const transcriber = await getTranscriber();
+      const output = await transcriber(audio, {
+        language: 'zh',
+        task: 'transcribe',
+        return_timestamps: false
+      });
+      const text = String(output?.text || '').trim();
+      if (text) {
+        setMessage(prev => (prev.trim() ? `${prev.trim()} ${text}` : text));
+        setSpeechStatus('语音已转写');
+      } else {
+        setSpeechStatus('未识别到有效语音');
+      }
+    } catch (error) {
+      console.error('[speech] transcribe failed:', error);
+      setSpeechStatus('语音转写失败，请改用键盘输入');
+    } finally {
+      setIsTranscribing(false);
+      releaseMedia();
+      setTimeout(() => setSpeechStatus(''), 2500);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      return;
+    }
+    releaseMedia();
+  };
+
+  const startRecording = async () => {
+    if (disabled || isTranscribing) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setSpeechStatus('当前浏览器不支持麦克风访问');
       return;
     }
 
     try {
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'zh-CN';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      transcriptPrefixRef.current = message.trim();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      audioChunksRef.current = [];
 
-      recognition.onresult = (event: any) => {
-        let finalTranscript = '';
-        let interimTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript;
-          } else {
-            interimTranscript += transcript;
-          }
+      const recorder = new MediaRecorder(
+        stream,
+        MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? { mimeType: 'audio/webm;codecs=opus' }
+          : undefined
+      );
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
         }
-        const nextTranscript = `${transcriptPrefixRef.current}${transcriptPrefixRef.current ? ' ' : ''}${finalTranscript}${interimTranscript}`.trim();
-        setMessage(nextTranscript);
       };
 
-      recognition.onerror = () => {
-        setSpeechStatus('语音输入不可用，请改用键盘输入');
-        stopSpeechRecognition();
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        audioChunksRef.current = [];
+        void transcribeAudio(blob);
       };
 
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-      setIsListening(true);
-      setSpeechStatus('正在聆听，请开始说话');
-    } catch {
-      setSpeechStatus('语音输入启动失败，请重试');
-      stopSpeechRecognition();
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      setSpeechStatus('录音中，再点一次停止并转写');
+    } catch (error) {
+      console.error('[speech] microphone access failed:', error);
+      setSpeechStatus('麦克风权限未开启，请允许后重试');
+      releaseMedia();
     }
   };
 
-  useEffect(() => () => stopSpeechRecognition(), []);
+  const handleVoiceClick = () => {
+    if (isTranscribing) return;
+    if (isRecording) {
+      stopRecording();
+    } else {
+      void startRecording();
+    }
+  };
 
-  const quickQuestions = [
-    "如何转行到互联网行业？",
-    "产品经理需要什么技能？",
-    "如何提升简历竞争力？",
-    "职业发展规划建议"
-  ];
+  useEffect(() => () => releaseMedia(), []);
 
   return (
-    <div className="border-t border-gray-700 bg-gray-800/50 backdrop-blur-sm p-4">
-      {/* Quick Questions */}
-      {message === '' && (
-        <div className="mb-4">
-          <p className="text-xs text-gray-400 mb-2">快速提问：</p>
-          <div className="flex flex-wrap gap-2">
-            {quickQuestions.map((question, index) => (
-              <button
-                key={index}
-                onClick={() => setMessage(question)}
-                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs rounded-full transition-colors"
-              >
-                {question}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Input Form */}
-      <form onSubmit={handleSubmit} className="flex items-end space-x-3">
-        {/* Attachment Button */}
+    <div className="border-t border-gray-800 bg-gray-900/80 px-4 py-4 backdrop-blur-sm">
+      <form onSubmit={handleSubmit} className="mx-auto flex max-w-4xl items-end gap-2 rounded-3xl border border-gray-700 bg-gray-800/90 px-3 py-3 shadow-lg shadow-black/10">
         <button
           type="button"
           onClick={handleAttachClick}
-          className="flex-shrink-0 p-2 text-gray-400 hover:text-gray-300 transition-colors"
+          className="flex-shrink-0 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-700 hover:text-white"
           title="附件"
         >
           <Paperclip className="h-5 w-5" />
@@ -199,48 +259,48 @@ const ChatInput: React.FC<ChatInputProps> = ({
           onChange={handleFileChange}
         />
 
-        {/* Text Input */}
         <div className="flex-1 relative">
           <textarea
             ref={textareaRef}
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onKeyDown={handleKeyPress}
             placeholder={placeholder}
             disabled={disabled}
             rows={1}
-            className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-2xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none text-white placeholder-gray-400 max-h-32"
-            style={{ minHeight: '48px' }}
+            className="max-h-40 w-full resize-none bg-transparent px-2 py-1 text-[15px] leading-6 text-white placeholder-gray-400 focus:outline-none"
+            style={{ minHeight: '36px' }}
           />
         </div>
 
-        {/* Voice Button */}
         <button
           type="button"
           onClick={handleVoiceClick}
-          className={`flex-shrink-0 p-2 transition-colors ${isListening ? 'text-emerald-400 hover:text-emerald-300' : 'text-gray-400 hover:text-gray-300'}`}
-          title="语音输入"
+          disabled={disabled || isTranscribing}
+          className={`flex-shrink-0 rounded-full p-2 transition-colors ${
+            isRecording ? 'bg-emerald-500 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-white'
+          } disabled:cursor-not-allowed disabled:opacity-40`}
+          title={isRecording ? '停止录音并转写' : '语音输入'}
         >
-          {isListening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+          {isRecording ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
         </button>
 
-        {/* Send Button */}
         <button
           type="submit"
-          disabled={(!message.trim() && attachments.length === 0) || disabled}
-          className="flex-shrink-0 p-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-full hover:from-purple-700 hover:to-blue-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={(!message.trim() && attachments.length === 0) || disabled || isTranscribing}
+          className="flex-shrink-0 rounded-full bg-white p-2 text-gray-900 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Send className="h-5 w-5" />
         </button>
       </form>
 
-      {speechStatus && <p className="mt-2 text-xs text-emerald-300">{speechStatus}</p>}
+      {speechStatus && <p className="mx-auto mt-2 max-w-4xl text-xs text-emerald-300">{speechStatus}</p>}
       {attachmentError && <p className="mt-2 text-xs text-red-300">{attachmentError}</p>}
 
       {attachments.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mx-auto mt-3 flex max-w-4xl flex-wrap gap-2">
           {attachments.map((file, index) => (
-            <div key={`${file.name}-${index}`} className="inline-flex items-center gap-2 rounded-full border border-gray-600 bg-gray-900/60 px-3 py-1 text-xs text-gray-200">
+            <div key={`${file.name}-${index}`} className="inline-flex items-center gap-2 rounded-full border border-gray-700 bg-gray-800 px-3 py-1 text-xs text-gray-200">
               <span className="max-w-48 truncate">{file.name}</span>
               <button type="button" onClick={() => removeAttachment(index)} className="text-gray-400 hover:text-white">×</button>
             </div>
