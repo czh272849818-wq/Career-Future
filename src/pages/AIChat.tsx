@@ -32,19 +32,23 @@ const AIChat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleSendMessage = async (message: string, attachments: Array<{ name: string; type: string; size: number; text?: string; dataUrl?: string }>) => {
-    const parsed = await Promise.all(attachments.map(async (file) => {
-      if (file.text && file.text.trim()) return file;
-      if (file.dataUrl && (file.type.startsWith('image/') || file.type === 'video/mp4')) {
-        return { ...file, text: file.type.startsWith('image/') ? `[图片] ${file.name}` : `[视频] ${file.name}` };
-      }
+  const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const handleSendMessage = async (message: string, attachments: Array<{ file: File; name: string; type: string; size: number }>) => {
+    const parsed = await Promise.all(attachments.map(async (item) => {
+      const dataBase64 = await fileToBase64(item.file);
       const resp = await fetch('/.netlify/functions/extract-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fileName: file.name,
-          mimeType: file.type,
-          dataBase64: file.dataUrl ? String(file.dataUrl).split(',')[1] || '' : ''
+          fileName: item.name,
+          mimeType: item.type,
+          dataBase64
         })
       });
       if (!resp.ok) {
@@ -52,7 +56,7 @@ const AIChat = () => {
         throw new Error(text || '附件解析失败');
       }
       const data = await resp.json().catch(() => ({}));
-      return { ...file, text: data.text || '' };
+      return { ...item, text: data.text || '' };
     }));
     await sendMessageWithAttachments(message || '请结合附件内容给出分析。', parsed as any);
   };

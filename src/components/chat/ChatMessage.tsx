@@ -1,4 +1,6 @@
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Bot, User, Clock } from 'lucide-react';
 
 interface Message {
@@ -15,27 +17,6 @@ interface ChatMessageProps {
 
 const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const isAI = message.sender === 'ai';
-
-  const formatContent = (content: string) => {
-    // 处理换行
-    const lines = content.split('\n');
-    return lines.map((line, index) => {
-      // 处理粗体文本 **text**
-      const boldRegex = /\*\*(.*?)\*\*/g;
-      const parts = line.split(boldRegex);
-      
-      return (
-        <div key={index} className={index > 0 ? 'mt-2' : ''}>
-          {parts.map((part, partIndex) => {
-            if (partIndex % 2 === 1) {
-              return <strong key={partIndex} className="font-semibold text-white">{part}</strong>;
-            }
-            return part;
-          })}
-        </div>
-      );
-    });
-  };
 
   return (
     <div className={`flex items-start space-x-3 ${isAI ? '' : 'flex-row-reverse space-x-reverse'}`}>
@@ -59,10 +40,36 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
             ? 'bg-gray-800 border border-gray-700' 
             : 'bg-gradient-to-r from-purple-600 to-blue-600'
         }`}>
-          <div className={`text-sm leading-relaxed break-words ${
-            isAI ? 'text-gray-300' : 'text-white'
+          <div className={`prose prose-invert max-w-none text-sm leading-relaxed ${
+            isAI ? 'prose-gray text-gray-300' : 'prose-white text-white'
           }`}>
-            {formatContent(message.content)}
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
+                h1: ({ children }) => <h1 className="mt-4 mb-2 text-xl font-semibold text-white first:mt-0">{children}</h1>,
+                h2: ({ children }) => <h2 className="mt-4 mb-2 text-lg font-semibold text-white first:mt-0">{children}</h2>,
+                h3: ({ children }) => <h3 className="mt-3 mb-1 text-base font-semibold text-white first:mt-0">{children}</h3>,
+                ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>,
+                ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
+                li: ({ children }) => <li className="leading-6">{children}</li>,
+                table: ({ children }) => <div className="my-3 overflow-x-auto"><table className="w-full border-collapse text-left text-sm">{children}</table></div>,
+                thead: ({ children }) => <thead className="bg-gray-700 text-white">{children}</thead>,
+                tbody: ({ children }) => <tbody className="divide-y divide-gray-700">{children}</tbody>,
+                tr: ({ children }) => <tr className="border-b border-gray-700">{children}</tr>,
+                th: ({ children }) => <th className="border border-gray-700 px-3 py-2 font-semibold">{children}</th>,
+                td: ({ children }) => <td className="border border-gray-700 px-3 py-2 align-top">{children}</td>,
+                code: ({ inline, children }) => inline ? (
+                  <code className="rounded bg-gray-900 px-1.5 py-0.5 text-[0.85em] text-emerald-300">{children}</code>
+                ) : (
+                  <code className="block whitespace-pre-wrap rounded-xl bg-gray-950 px-4 py-3 text-xs text-gray-200">{children}</code>
+                ),
+                pre: ({ children }) => <pre className="my-3 overflow-x-auto rounded-xl bg-gray-950 p-0">{children}</pre>,
+                blockquote: ({ children }) => <blockquote className="my-3 border-l-4 border-purple-500 pl-4 text-gray-300">{children}</blockquote>
+              }}
+            >
+              {message.content}
+            </ReactMarkdown>
           </div>
           
           {/* Timestamp */}

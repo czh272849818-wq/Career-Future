@@ -132,7 +132,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         .filter(m => m.id !== 'welcome')
         .slice(-MAX_CONTEXT_MESSAGES);
       const apiMessages = [
-        { role: 'system', content: '你是一位专业的中文职业规划顾问，请用清晰、结构化的方式回答。如果用户提供了附件，请结合附件中的内容作答，并指出你使用了哪些文件信息。' },
+        { role: 'system', content: '你是一位专业的中文职业规划顾问。请用简洁、结构化的 Markdown 输出，默认采用以下结构：1) 结论 2) 关键分析 3) 建议/下一步。需要比较时使用表格，需要分步骤时使用编号列表。避免冗长铺陈，不要输出无意义的套话。如果用户提供了附件，请结合附件内容，并明确指出你引用了哪些文件信息。' },
         ...conversation.map(m => ({
           role: m.sender === 'user' ? 'user' : 'assistant',
           content: m.content

@@ -1,12 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Mic } from 'lucide-react';
+import { Send, Paperclip, Mic, MicOff } from 'lucide-react';
 
 type Attachment = {
+  file: File;
   name: string;
   type: string;
   size: number;
-  text?: string;
-  dataUrl?: string;
 };
 
 interface ChatInputProps {
@@ -23,16 +22,33 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const [message, setMessage] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [speechStatus, setSpeechStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
+  const transcriptPrefixRef = useRef('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const stopSpeechRecognition = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.onend = null;
+      recognitionRef.current.onerror = null;
+      recognitionRef.current.onresult = null;
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setIsListening(false);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if ((message.trim() || attachments.length > 0) && !disabled) {
+      stopSpeechRecognition();
       onSendMessage(message, attachments);
       setMessage('');
       setAttachments([]);
       setAttachmentError('');
+      setSpeechStatus('');
     }
   };
 
@@ -51,31 +67,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   }, [message]);
 
-  const toDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-
-  const extractText = async (file: File) => {
-    const name = file.name.toLowerCase();
-    const type = file.type || '';
-    if (type.startsWith('text/') || name.endsWith('.txt') || name.endsWith('.md')) {
-      return await file.text();
-    }
-
-    const dataUrl = await toDataUrl(file);
-    if (type.startsWith('image/')) {
-      return `[图片] ${file.name}`;
-    }
-    if (type === 'video/mp4' || name.endsWith('.mp4')) {
-      return `[视频] ${file.name}`;
-    }
-
-    return dataUrl;
-  };
-
   const handleAttachClick = () => {
     fileInputRef.current?.click();
   };
@@ -85,13 +76,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if (!files.length) return;
     setAttachmentError('');
     try {
-      const next = await Promise.all(files.map(async (file) => ({
+      const next = files.map((file) => ({
+        file,
         name: file.name,
         type: file.type,
-        size: file.size,
-        text: await extractText(file),
-        dataUrl: file.type.startsWith('image/') || file.type === 'video/mp4' ? await toDataUrl(file) : undefined
-      })));
+        size: file.size
+      }));
       setAttachments(prev => [...prev, ...next]);
     } catch {
       setAttachmentError('附件读取失败，请重试');
@@ -103,6 +93,63 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const removeAttachment = (index: number) => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   };
+
+  const handleVoiceClick = () => {
+    if (disabled) return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setSpeechStatus('当前浏览器不支持语音输入');
+      return;
+    }
+
+    if (isListening) {
+      stopSpeechRecognition();
+      setSpeechStatus('');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'zh-CN';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      transcriptPrefixRef.current = message.trim();
+
+      recognition.onresult = (event: any) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        const nextTranscript = `${transcriptPrefixRef.current}${transcriptPrefixRef.current ? ' ' : ''}${finalTranscript}${interimTranscript}`.trim();
+        setMessage(nextTranscript);
+      };
+
+      recognition.onerror = () => {
+        setSpeechStatus('语音输入不可用，请改用键盘输入');
+        stopSpeechRecognition();
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+      setIsListening(true);
+      setSpeechStatus('正在聆听，请开始说话');
+    } catch {
+      setSpeechStatus('语音输入启动失败，请重试');
+      stopSpeechRecognition();
+    }
+  };
+
+  useEffect(() => () => stopSpeechRecognition(), []);
 
   const quickQuestions = [
     "如何转行到互联网行业？",
@@ -170,10 +217,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
         {/* Voice Button */}
         <button
           type="button"
-          className="flex-shrink-0 p-2 text-gray-400 hover:text-gray-300 transition-colors"
+          onClick={handleVoiceClick}
+          className={`flex-shrink-0 p-2 transition-colors ${isListening ? 'text-emerald-400 hover:text-emerald-300' : 'text-gray-400 hover:text-gray-300'}`}
           title="语音输入"
         >
-          <Mic className="h-5 w-5" />
+          {isListening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
         </button>
 
         {/* Send Button */}
@@ -186,6 +234,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </button>
       </form>
 
+      {speechStatus && <p className="mt-2 text-xs text-emerald-300">{speechStatus}</p>}
       {attachmentError && <p className="mt-2 text-xs text-red-300">{attachmentError}</p>}
 
       {attachments.length > 0 && (
