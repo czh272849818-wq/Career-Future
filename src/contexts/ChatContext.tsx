@@ -53,6 +53,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const didHydrateRef = useRef(false);
 
   // unique id generator
   const uid = () => (typeof crypto !== 'undefined' && (crypto as any).randomUUID)
@@ -62,6 +63,40 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [model, setModel] = useState<string>(DEFAULT_LLM_MODEL);
   const [temperature, setTemperature] = useState<number>(DEFAULT_TEMPERATURE);
   const [streamEnabled, setStreamEnabled] = useState<boolean>(DEFAULT_STREAM);
+
+  const getStorageKey = () => {
+    try {
+      const raw = localStorage.getItem('user_data');
+      const userId = raw ? JSON.parse(raw)?.id : '';
+      return userId ? `ai_chat_sessions_${userId}` : 'ai_chat_sessions_guest';
+    } catch {
+      return 'ai_chat_sessions_guest';
+    }
+  };
+
+  const reviveSession = (session: any): ChatSession => ({
+    ...session,
+    createdAt: new Date(session.createdAt),
+    updatedAt: new Date(session.updatedAt),
+    messages: Array.isArray(session.messages)
+      ? session.messages.map((message: any) => ({
+          ...message,
+          timestamp: new Date(message.timestamp)
+        }))
+      : []
+  });
+
+  const persistSessions = (nextSessions: ChatSession[], nextCurrentSession: ChatSession | null) => {
+    if (!didHydrateRef.current) return;
+    try {
+      localStorage.setItem(getStorageKey(), JSON.stringify({
+        sessions: nextSessions,
+        currentSessionId: nextCurrentSession?.id || null
+      }));
+    } catch (error) {
+      console.warn('[chat] failed to persist sessions:', error);
+    }
+  };
 
   const createNewSession = () => {
     const newSession: ChatSession = {
@@ -83,6 +118,41 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setSessions(prev => [newSession, ...prev]);
     setCurrentSession(newSession);
   };
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(getStorageKey());
+      if (!raw) {
+        didHydrateRef.current = true;
+        createNewSession();
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      const storedSessions = Array.isArray(parsed?.sessions)
+        ? parsed.sessions.map(reviveSession)
+        : [];
+      const storedCurrentId = parsed?.currentSessionId || null;
+      const nextCurrentSession = storedSessions.find(s => s.id === storedCurrentId) || storedSessions[0] || null;
+
+      if (storedSessions.length > 0) {
+        setSessions(storedSessions);
+        setCurrentSession(nextCurrentSession);
+      } else {
+        createNewSession();
+      }
+    } catch (error) {
+      console.warn('[chat] failed to load sessions:', error);
+      createNewSession();
+    } finally {
+      didHydrateRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!didHydrateRef.current) return;
+    persistSessions(sessions, currentSession);
+  }, [sessions, currentSession]);
 
   const switchSession = (sessionId: string) => {
     const session = sessions.find(s => s.id === sessionId);
@@ -328,9 +398,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   };
 
   const deleteSession = (sessionId: string) => {
-    setSessions(prev => prev.filter(s => s.id !== sessionId));
+    const nextSessions = sessions.filter(s => s.id !== sessionId);
+    setSessions(nextSessions);
     if (currentSession?.id === sessionId) {
-      setCurrentSession(null);
+      if (nextSessions.length > 0) {
+        setCurrentSession(nextSessions[0]);
+      } else {
+        createNewSession();
+        return;
+      }
     }
   };
 
