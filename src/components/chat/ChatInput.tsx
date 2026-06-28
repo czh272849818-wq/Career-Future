@@ -30,6 +30,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recognitionRef = useRef<any | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const transcriberPromiseRef = useRef<Promise<any> | null>(null);
 
@@ -91,6 +92,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const releaseMedia = () => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.abort?.();
+      } catch {}
+      recognitionRef.current = null;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
@@ -180,6 +191,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const stopRecording = () => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop?.();
+      } catch {}
+      return;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
       return;
@@ -189,6 +207,50 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const startRecording = async () => {
     if (disabled || isTranscribing) return;
+
+    const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognitionCtor) {
+      try {
+        const recognition = new SpeechRecognitionCtor();
+        recognition.lang = 'zh-CN';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+        recognitionRef.current = recognition;
+
+        recognition.onresult = (event: any) => {
+          const transcript = Array.from(event.results || [])
+            .map((result: any) => result?.[0]?.transcript || '')
+            .join('')
+            .trim();
+          if (transcript) {
+            setMessage(prev => (prev.trim() ? `${prev.trim()} ${transcript}` : transcript));
+            setSpeechStatus('语音已转写');
+          } else {
+            setSpeechStatus('未识别到有效语音');
+          }
+        };
+
+        recognition.onerror = (event: any) => {
+          console.error('[speech] recognition failed:', event);
+          setSpeechStatus('语音识别失败，请改用键盘输入');
+        };
+
+        recognition.onend = () => {
+          setIsRecording(false);
+          recognitionRef.current = null;
+          setTimeout(() => setSpeechStatus(''), 2500);
+        };
+
+        setIsRecording(true);
+        setSpeechStatus('正在识别语音...');
+        recognition.start();
+        return;
+      } catch (error) {
+        console.warn('[speech] native recognition failed, fallback to recorder:', error);
+        recognitionRef.current = null;
+      }
+    }
+
     if (!navigator.mediaDevices?.getUserMedia) {
       setSpeechStatus('当前浏览器不支持麦克风访问');
       return;

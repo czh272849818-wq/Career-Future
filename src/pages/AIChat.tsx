@@ -4,7 +4,6 @@ import { useChat } from '../contexts/ChatContext';
 import ChatMessage from '../components/chat/ChatMessage';
 import ChatInput from '../components/chat/ChatInput';
 import ChatSidebar from '../components/chat/ChatSidebar';
-import BackButton from '../components/ui/BackButton';
 
 const AIChat = () => {
   const {
@@ -63,10 +62,6 @@ const AIChat = () => {
   return (
     <div className="h-[calc(100vh-4rem)] overflow-hidden bg-gray-950 px-3 py-3 sm:px-4">
       <div className="mx-auto flex h-full max-w-7xl flex-col">
-        <div className="mb-4 shrink-0">
-          <BackButton />
-        </div>
-
         <div className="flex min-h-0 flex-1 gap-4">
           <ChatSidebar
             sessions={sessions}

@@ -97,12 +97,31 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       : []
   });
 
+  const isBlankWelcomeSession = (session: ChatSession) => {
+    return Array.isArray(session.messages)
+      && session.messages.length === 1
+      && session.messages[0]?.id === 'welcome'
+      && String(session.messages[0]?.content || '').includes('AI职业规划师');
+  };
+
+  const normalizeSessions = (inputSessions: ChatSession[]) => {
+    const sessionsWithDates = Array.isArray(inputSessions) ? inputSessions : [];
+    const seenBlank = new Set<string>();
+    return sessionsWithDates.filter((session) => {
+      if (!isBlankWelcomeSession(session)) return true;
+      const key = `${session.title || ''}::${String(session.messages[0]?.content || '')}`;
+      if (seenBlank.has(key)) return false;
+      seenBlank.add(key);
+      return true;
+    });
+  };
+
   const readLocalSessions = (storageKey: string) => {
     try {
       const raw = localStorage.getItem(storageKey);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      const storedSessions = Array.isArray(parsed?.sessions) ? parsed.sessions.map(reviveSession) : [];
+      const storedSessions = normalizeSessions(Array.isArray(parsed?.sessions) ? parsed.sessions.map(reviveSession) : []);
       const storedCurrentId = parsed?.currentSessionId || null;
       return {
         sessions: storedSessions,
@@ -136,7 +155,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
 
     const data = await resp.json();
-    const storedSessions = Array.isArray(data?.sessions) ? data.sessions.map(reviveSession) : [];
+    const storedSessions = normalizeSessions(Array.isArray(data?.sessions) ? data.sessions.map(reviveSession) : []);
     return {
       sessions: storedSessions,
       currentSessionId: data?.currentSessionId || null
@@ -162,7 +181,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const createNewSession = () => {
     const newSession: ChatSession = {
       id: uid(),
-      title: `对话 ${sessions.length + 1}`,
+      title: '新对话',
       messages: [
         {
           id: 'welcome',
@@ -214,7 +233,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         if (remoteState?.sessions.length) {
           const nextCurrentSession = remoteState.sessions.find(s => s.id === remoteState.currentSessionId) || remoteState.sessions[0] || null;
           if (!cancelled) {
-            setSessions(remoteState.sessions);
+            setSessions(normalizeSessions(remoteState.sessions));
             setCurrentSession(nextCurrentSession);
           }
           return;
@@ -223,11 +242,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         if (localState?.sessions.length) {
           const nextCurrentSession = localState.sessions.find(s => s.id === localState.currentSessionId) || localState.sessions[0] || null;
           if (!cancelled) {
-            setSessions(localState.sessions);
+            setSessions(normalizeSessions(localState.sessions));
             setCurrentSession(nextCurrentSession);
           }
           try {
-            await saveRemoteSessions(userId, localState.sessions, nextCurrentSession?.id || null);
+            await saveRemoteSessions(userId, normalizeSessions(localState.sessions), nextCurrentSession?.id || null);
           } catch (error) {
             console.warn('[chat] failed to migrate local sessions to cloud:', error);
           }
@@ -260,12 +279,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (isTyping) return;
     const nextCurrentSessionId = currentSession?.id || null;
     if (userId) {
-      void saveRemoteSessions(userId, sessions, nextCurrentSessionId).catch((error) => {
+      const nextSessions = normalizeSessions(sessions);
+      void saveRemoteSessions(userId, nextSessions, nextCurrentSessionId).catch((error) => {
         console.warn('[chat] failed to save remote sessions:', error);
-        saveLocalSessions(getLocalStorageKey(userId), sessions, nextCurrentSessionId);
+        saveLocalSessions(getLocalStorageKey(userId), nextSessions, nextCurrentSessionId);
       });
     } else {
-      saveLocalSessions(getLocalStorageKey(null), sessions, nextCurrentSessionId);
+      saveLocalSessions(getLocalStorageKey(null), normalizeSessions(sessions), nextCurrentSessionId);
     }
   }, [sessions, currentSession, userId, isTyping]);
 
@@ -294,6 +314,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     const updatedSession = {
       ...currentSession,
+      title:
+        currentSession.messages.length === 1 && currentSession.title === '新对话'
+          ? `${content.trim().slice(0, 18)}${content.trim().length > 18 ? '...' : ''}`
+          : currentSession.title,
       messages: [...currentSession.messages, userMessage],
       updatedAt: new Date()
     };
@@ -524,12 +548,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       }
     }
   };
-
-  useEffect(() => {
-    if (sessions.length === 0) {
-      createNewSession();
-    }
-  }, []);
 
   return (
     <ChatContext.Provider value={{

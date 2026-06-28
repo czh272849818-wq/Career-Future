@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Mail } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import BackButton from '../components/ui/BackButton';
 
 const Login = () => {
   const [identifier, setIdentifier] = useState('');
@@ -31,10 +30,6 @@ const Login = () => {
   return (
     <div className="min-h-screen bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md mx-auto">
-        <div className="mb-4">
-          <BackButton />
-        </div>
-
         <div className="space-y-8">
           <div className="text-center">
             <div className="mx-auto h-16 w-16 bg-gradient-to-r from-emerald-500 to-blue-600 rounded-2xl flex items-center justify-center mb-6">

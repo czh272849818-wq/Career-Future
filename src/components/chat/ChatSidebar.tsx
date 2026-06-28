@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, MessageSquare, Trash2, MoreHorizontal } from 'lucide-react';
+import { Plus, MessageSquare, Trash2 } from 'lucide-react';
 
 interface ChatSession {
   id: string;
@@ -83,25 +83,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
 
                 {/* Actions */}
                 <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <div className="flex items-center space-x-1">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteSession(session.id);
-                      }}
-                      className="p-1 text-gray-400 hover:text-red-400 transition-colors"
-                      title="删除对话"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                    <button
-                      onClick={(e) => e.stopPropagation()}
-                      className="p-1 text-gray-400 hover:text-gray-300 transition-colors"
-                      title="更多选项"
-                    >
-                      <MoreHorizontal className="h-3 w-3" />
-                    </button>
-                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteSession(session.id);
+                    }}
+                    className="p-1 text-gray-400 transition-colors hover:text-red-400"
+                    title="删除对话"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
                 </div>
               </div>
             </div>
