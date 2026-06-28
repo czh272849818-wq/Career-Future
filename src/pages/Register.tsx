@@ -6,9 +6,7 @@ import BackButton from '../components/ui/BackButton';
 
 const Register = () => {
   const [formData, setFormData] = useState({
-    name: '',
     email: '',
-    phone: '',
     password: '',
     confirmPassword: '',
     agreeTo: false
@@ -52,9 +50,7 @@ const Register = () => {
     setIsLoading(true);
     try {
       await register({
-        name: formData.name,
         email: formData.email,
-        phone: formData.phone,
         password: formData.password
       });
       navigate('/assessment');
@@ -104,7 +100,7 @@ const Register = () => {
               <span className="text-white font-bold text-xl">职</span>
             </div>
             <h2 className="text-3xl font-bold text-white mb-2">创建邮箱账号</h2>
-            <p className="text-gray-400">用于长期保存测评、简历和职业规划结果</p>
+            <p className="text-gray-400">只需要邮箱和密码，立即开始使用</p>
           </div>
 
           <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-xl p-8 border border-gray-700">
@@ -115,22 +111,6 @@ const Register = () => {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-5">
-              <div>
-                <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">
-                  姓名 <span className="text-red-400">*</span>
-                </label>
-                <input
-                  id="name"
-                  name="name"
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-gray-400"
-                  placeholder="请输入姓名"
-                />
-              </div>
-
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
                   邮箱 <span className="text-red-400">*</span>
@@ -144,21 +124,6 @@ const Register = () => {
                   onChange={handleInputChange}
                   className="w-full px-3 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-gray-400"
                   placeholder="name@example.com"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="phone" className="block text-sm font-medium text-gray-300 mb-2">
-                  绑定手机号 <span className="text-gray-500">可选</span>
-                </label>
-                <input
-                  id="phone"
-                  name="phone"
-                  type="tel"
-                  value={formData.phone}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-gray-400"
-                  placeholder="绑定后可用手机号密码登录"
                 />
               </div>
 

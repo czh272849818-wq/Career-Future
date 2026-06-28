@@ -16,10 +16,7 @@ import {
   createToken,
   getUserData,
   addAssessment,
-  upsertUserData,
-  createPhoneCode,
-  loginOrCreatePhoneUser,
-  upsertWechatUser
+  upsertUserData
 } from './db.js';
 
 dotenv.config({ path: '.env.local' });
@@ -36,37 +33,8 @@ if (!API_KEY) {
   console.warn('[DeepSeek] Missing DEEPSEEK_API_KEY in environment');
 }
 
-async function sendSmsCode(phone, code) {
-  if (process.env.SMS_PROVIDER !== 'twilio') return false;
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_FROM_NUMBER;
-  if (!sid || !token || !from) return false;
-
-  const body = new URLSearchParams({
-    To: phone,
-    From: from,
-    Body: `职向未来验证码：${code}，10分钟内有效。`
-  });
-
-  const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString('base64')}`,
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body
-  });
-
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
-    throw new Error(text || '短信发送失败');
-  }
-  return true;
-}
-
 // 初始化演示账户
-const demoUser = ensureDemoUser();
+ensureDemoUser();
 
 // 认证与用户数据（按用户ID索引）
 app.post('/api/auth/register', (req, res) => {
@@ -96,108 +64,6 @@ app.post('/api/auth/login', (req, res) => {
   } catch (err) {
     console.error('[auth/login] error:', err);
     return res.status(500).json({ error: '登录失败' });
-  }
-});
-
-app.post('/api/auth/phone-code', async (req, res) => {
-  try {
-    const { phone = '' } = req.body || {};
-    const result = createPhoneCode(phone);
-    const sentBySms = await sendSmsCode(result.phone, result.code);
-    return res.json({
-      ok: true,
-      phone: result.phone,
-      expiresAt: result.expiresAt,
-      delivery: sentBySms ? 'sms' : 'screen',
-      devCode: sentBySms ? undefined : result.code
-    });
-  } catch (err) {
-    if (String(err?.message) === 'INVALID_PHONE') return res.status(400).json({ error: '请输入有效的中国大陆手机号' });
-    console.error('[auth/phone-code] error:', err);
-    return res.status(500).json({ error: '验证码发送失败' });
-  }
-});
-
-app.post('/api/auth/phone-login', (req, res) => {
-  try {
-    const { phone = '', code = '', name = '' } = req.body || {};
-    const user = loginOrCreatePhoneUser({ phone, code, name });
-    const token = createToken(user);
-    return res.json({ token, user: sanitizeUser(user) });
-  } catch (err) {
-    if (String(err?.message) === 'INVALID_CODE') return res.status(401).json({ error: '验证码错误或已过期' });
-    console.error('[auth/phone-login] error:', err);
-    return res.status(500).json({ error: '手机号登录失败' });
-  }
-});
-
-app.get('/api/auth/wechat/start', (_req, res) => {
-  const appId = process.env.WECHAT_APP_ID;
-  const redirectUri = process.env.WECHAT_REDIRECT_URI;
-  if (!appId || !redirectUri) {
-    return res.status(501).json({ error: '微信登录需要配置 WECHAT_APP_ID 与 WECHAT_REDIRECT_URI' });
-  }
-  const state = crypto.randomUUID?.() || `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  const url = new URL('https://open.weixin.qq.com/connect/qrconnect');
-  url.searchParams.set('appid', appId);
-  url.searchParams.set('redirect_uri', redirectUri);
-  url.searchParams.set('response_type', 'code');
-  url.searchParams.set('scope', 'snsapi_login');
-  url.searchParams.set('state', state);
-  return res.json({ url: `${url.toString()}#wechat_redirect` });
-});
-
-app.get('/api/auth/wechat/callback', async (req, res) => {
-  try {
-    const { code = '' } = req.query || {};
-    const appId = process.env.WECHAT_APP_ID;
-    const appSecret = process.env.WECHAT_APP_SECRET;
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    if (!code) return res.redirect(`${frontendUrl}/login?auth_error=${encodeURIComponent('微信授权失败')}`);
-    if (!appId || !appSecret) {
-      return res.redirect(`${frontendUrl}/login?auth_error=${encodeURIComponent('微信登录需要配置 WECHAT_APP_ID 与 WECHAT_APP_SECRET')}`);
-    }
-
-    const tokenUrl = new URL('https://api.weixin.qq.com/sns/oauth2/access_token');
-    tokenUrl.searchParams.set('appid', appId);
-    tokenUrl.searchParams.set('secret', appSecret);
-    tokenUrl.searchParams.set('code', String(code));
-    tokenUrl.searchParams.set('grant_type', 'authorization_code');
-    const tokenResp = await fetch(tokenUrl);
-    const tokenData = await tokenResp.json();
-    if (!tokenResp.ok || tokenData.errcode) throw new Error(tokenData.errmsg || '微信授权换取失败');
-
-    const userUrl = new URL('https://api.weixin.qq.com/sns/userinfo');
-    userUrl.searchParams.set('access_token', tokenData.access_token);
-    userUrl.searchParams.set('openid', tokenData.openid);
-    userUrl.searchParams.set('lang', 'zh_CN');
-    const userResp = await fetch(userUrl);
-    const userData = await userResp.json();
-    if (!userResp.ok || userData.errcode) throw new Error(userData.errmsg || '微信用户信息获取失败');
-
-    const user = upsertWechatUser({
-      openid: userData.openid,
-      unionid: userData.unionid,
-      nickname: userData.nickname,
-      avatar: userData.headimgurl
-    });
-    const token = createToken(user);
-    const payload = encodeURIComponent(JSON.stringify(sanitizeUser(user)));
-    return res.redirect(`${frontendUrl}/login?auth_token=${encodeURIComponent(token)}&user=${payload}`);
-  } catch (err) {
-    console.error('[auth/wechat/callback] error:', err);
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    return res.redirect(`${frontendUrl}/login?auth_error=${encodeURIComponent('微信登录失败，请稍后重试')}`);
-  }
-});
-
-app.post('/api/auth/demo', (_req, res) => {
-  try {
-    const token = createToken(demoUser);
-    return res.json({ token, user: sanitizeUser(demoUser) });
-  } catch (err) {
-    console.error('[auth/demo] error:', err);
-    return res.status(500).json({ error: '演示登录失败' });
   }
 });
 

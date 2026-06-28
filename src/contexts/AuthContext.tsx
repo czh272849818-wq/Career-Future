@@ -14,13 +14,8 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   login: (identifier: string, password: string) => Promise<void>;
-  register: (userData: Partial<User> & { password: string }) => Promise<void>;
-  requestPhoneCode: (phone: string) => Promise<{ devCode?: string; delivery?: string }>;
-  loginWithPhone: (phone: string, code: string, name?: string) => Promise<void>;
-  startWechatLogin: () => Promise<void>;
-  completeExternalLogin: (token: string, user: User) => void;
+  register: (userData: { email: string; password: string }) => Promise<void>;
   logout: () => void;
-  loginDemo: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -69,61 +64,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     persistAuth(data.token, data.user);
   };
 
-  const register = async (userData: Partial<User> & { password: string }) => {
+  const register = async (userData: { email: string; password: string }) => {
     const resp = await fetch(apiUrl('/api/auth/register'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: userData.email, password: userData.password, name: userData.name, phone: userData.phone })
+      body: JSON.stringify({ email: userData.email, password: userData.password })
     });
     if (!resp.ok) {
       const text = await resp.text();
       throw new Error(text || '注册失败');
-    }
-    const data = await resp.json();
-    persistAuth(data.token, data.user);
-  };
-
-  const requestPhoneCode = async (phone: string) => {
-    const resp = await fetch(apiUrl('/api/auth/phone-code'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone })
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(text || '验证码发送失败');
-    }
-    return resp.json();
-  };
-
-  const loginWithPhone = async (phone: string, code: string, name = '') => {
-    const resp = await fetch(apiUrl('/api/auth/phone-login'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, code, name })
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(text || '手机号登录失败');
-    }
-    const data = await resp.json();
-    persistAuth(data.token, data.user);
-  };
-
-  const startWechatLogin = async () => {
-    const resp = await fetch(apiUrl('/api/auth/wechat/start'));
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok || !data.url) {
-      throw new Error(data.error || '微信登录需要先配置微信开放平台参数');
-    }
-    window.location.href = data.url;
-  };
-
-  const loginDemo = async () => {
-    const resp = await fetch(apiUrl('/api/auth/demo'), { method: 'POST' });
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(text || '演示登录失败');
     }
     const data = await resp.json();
     persistAuth(data.token, data.user);
@@ -142,12 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthenticated,
       login,
       register,
-      requestPhoneCode,
-      loginWithPhone,
-      startWechatLogin,
-      completeExternalLogin: persistAuth,
       logout,
-      loginDemo
     }}>
       {children}
     </AuthContext.Provider>
