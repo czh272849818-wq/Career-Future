@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Bot, Sparkles } from 'lucide-react';
 import { useChat } from '../contexts/ChatContext';
+import { apiUrl } from '../api';
 import ChatMessage from '../components/chat/ChatMessage';
 import ChatInput from '../components/chat/ChatInput';
 import ChatSidebar from '../components/chat/ChatSidebar';
@@ -29,13 +30,35 @@ const AIChat = () => {
     reader.readAsDataURL(file);
   });
 
+  const formatFileSize = (bytes: number) => {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+    const mb = bytes / 1024 / 1024;
+    if (mb >= 1) return `${mb.toFixed(2)} MB`;
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  };
+
   const handleSendMessage = async (
     message: string,
     attachments: Array<{ file: File; name: string; type: string; size: number }>
   ) => {
-    const parsed = await Promise.all(attachments.map(async (item) => {
+    const EXTRACT_LIMIT = 12 * 1024 * 1024;
+    const parsed = await Promise.allSettled(attachments.map(async (item) => {
+      const lowerName = item.name.toLowerCase();
+      const isVideo = item.type.startsWith('video/') || /\.(mp4|mov|m4v|webm)$/i.test(lowerName);
+      const isTooLarge = item.size > EXTRACT_LIMIT;
+
+      if (isVideo || isTooLarge) {
+        const note = isVideo
+          ? '视频附件当前仅记录文件信息，不做逐帧解析。'
+          : '文件较大，已跳过内容提取以避免卡顿。';
+        return {
+          ...item,
+          text: `[附件] ${item.name}（${formatFileSize(item.size)}）${note}`
+        };
+      }
+
       const dataBase64 = await fileToBase64(item.file);
-      const resp = await fetch('/.netlify/functions/extract-text', {
+      const resp = await fetch(apiUrl('/api/extract-text'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -45,14 +68,23 @@ const AIChat = () => {
         })
       });
       if (!resp.ok) {
-        const text = await resp.text();
+        const text = await resp.text().catch(() => '');
         throw new Error(text || '附件解析失败');
       }
       const data = await resp.json().catch(() => ({}));
       return { ...item, text: data.text || '' };
     }));
 
-    await sendMessageWithAttachments(message || '请结合附件内容给出分析。', parsed as any);
+    const resolvedAttachments = parsed
+      .map((result, index) => {
+        if (result.status === 'fulfilled') return result.value;
+        return {
+          ...attachments[index],
+          text: ''
+        };
+      });
+
+    await sendMessageWithAttachments(message || '请结合附件内容给出分析。', resolvedAttachments as any);
   };
 
   useEffect(() => {

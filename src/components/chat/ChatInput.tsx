@@ -9,7 +9,7 @@ type Attachment = {
 };
 
 interface ChatInputProps {
-  onSendMessage: (message: string, attachments: Attachment[]) => void;
+  onSendMessage: (message: string, attachments: Attachment[]) => Promise<void> | void;
   disabled?: boolean;
   placeholder?: string;
 }
@@ -26,6 +26,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [speechStatus, setSpeechStatus] = useState('');
   const [isComposing, setIsComposing] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -36,15 +37,25 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if ((message.trim() || attachments.length > 0) && !disabled) {
+    if ((message.trim() || attachments.length > 0) && !disabled && !isSending && !isTranscribing) {
       if (isRecording) {
         stopRecording();
       }
-      onSendMessage(message, attachments);
-      setMessage('');
-      setAttachments([]);
-      setAttachmentError('');
-      setSpeechStatus('');
+      void (async () => {
+        setIsSending(true);
+        try {
+          await onSendMessage(message, attachments);
+          setMessage('');
+          setAttachments([]);
+          setAttachmentError('');
+          setSpeechStatus('');
+        } catch (error) {
+          console.error('[chat] send failed:', error);
+          setSpeechStatus('发送失败，请稍后重试');
+        } finally {
+          setIsSending(false);
+        }
+      })();
     }
   };
 
@@ -302,6 +313,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   useEffect(() => () => releaseMedia(), []);
 
+  const sendDisabled = (!message.trim() && attachments.length === 0) || disabled || isTranscribing || isSending;
+
   return (
     <div className="border-t border-gray-800 bg-gray-900/80 px-4 py-4 backdrop-blur-sm">
       <form onSubmit={handleSubmit} className="mx-auto flex max-w-4xl items-end gap-2 rounded-3xl border border-gray-700 bg-gray-800/90 px-3 py-3 shadow-lg shadow-black/10">
@@ -353,7 +366,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
         <button
           type="submit"
-          disabled={(!message.trim() && attachments.length === 0) || disabled || isTranscribing}
+          disabled={sendDisabled}
           className="flex-shrink-0 rounded-full bg-white p-2 text-gray-900 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Send className="h-5 w-5" />
