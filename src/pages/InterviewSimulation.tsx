@@ -62,6 +62,11 @@ interface InterviewResult {
   answerRecords: string[];
 }
 
+interface JobContextSection {
+  title: string;
+  items: string[];
+}
+
 const InterviewSimulation = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
@@ -100,9 +105,20 @@ const InterviewSimulation = () => {
   const [selectedIndustryLocal, setSelectedIndustryLocal] = useState(selectedJob?.industry || '');
   const [selectedPositionLocal, setSelectedPositionLocal] = useState(selectedJob?.title || '');
   const [jobDescription, setJobDescription] = useState(selectedJob?.description || '');
-  const [jobResponsibilities, setJobResponsibilities] = useState<string[]>(
-    Array.isArray(selectedJob?.requirements) ? selectedJob.requirements.slice(0, 6) : ['']
-  );
+  const [jobContext, setJobContext] = useState<JobContextSection[]>([
+    {
+      title: '核心职责',
+      items: Array.isArray(selectedJob?.requirements) ? selectedJob.requirements.slice(0, 3) : ['']
+    },
+    {
+      title: '必备技能',
+      items: ['']
+    },
+    {
+      title: '加分项',
+      items: ['']
+    }
+  ]);
   const [digitalHumanMode, setDigitalHumanMode] = useState<'listen' | 'ask' | 'idle'>('idle');
   const [voiceMode, setVoiceMode] = useState<'auto' | 'push-to-talk'>('auto');
 
@@ -111,40 +127,73 @@ const InterviewSimulation = () => {
     setSelectedIndustryLocal(selectedJob.industry || '');
     setSelectedPositionLocal(selectedJob.title || '');
     setJobDescription(selectedJob.description || '');
-    setJobResponsibilities(Array.isArray(selectedJob.requirements) ? selectedJob.requirements.slice(0, 6) : ['']);
+    setJobContext([
+      {
+        title: '核心职责',
+        items: Array.isArray(selectedJob.requirements) ? selectedJob.requirements.slice(0, 3) : ['']
+      },
+      {
+        title: '必备技能',
+        items: ['']
+      },
+      {
+        title: '加分项',
+        items: ['']
+      }
+    ]);
   }, [selectedJob]);
 
   const availablePositions = selectedIndustryLocal ? (industryMap[selectedIndustryLocal] || []) : [];
 
   const buildQuestionContext = () => {
-    const responsibilityLines = jobResponsibilities
-      .map(item => item.trim())
+    const sectionText = jobContext
+      .map((section) => {
+        const items = section.items.map(item => item.trim()).filter(Boolean);
+        if (!items.length) return '';
+        return `${section.title}：\n${items.map((item, index) => `${index + 1}. ${item}`).join('\n')}`;
+      })
       .filter(Boolean);
     const parts = [
       selectedIndustryLocal ? `行业：${selectedIndustryLocal}` : '',
       selectedPositionLocal ? `岗位：${selectedPositionLocal}` : '',
       selectedJob?.company ? `目标公司：${selectedJob.company}` : '',
       jobDescription.trim() ? `岗位介绍：${jobDescription.trim()}` : '',
-      responsibilityLines.length ? `岗位职责：\n${responsibilityLines.map((item, index) => `${index + 1}. ${item}`).join('\n')}` : '',
+      sectionText.length ? `岗位结构：\n${sectionText.join('\n\n')}` : '',
       assessmentData?.aiAnalysis ? `候选人画像：${String(assessmentData.aiAnalysis).slice(0, 500)}` : '',
       assessmentData?.traits?.length ? `候选人优势标签：${assessmentData.traits.slice(0, 5).join('、')}` : ''
     ].filter(Boolean);
     return parts.join('\n');
   };
 
-  const updateResponsibility = (index: number, value: string) => {
-    setJobResponsibilities(prev => prev.map((item, i) => (i === index ? value : item)));
+  const updateContextItem = (sectionIndex: number, itemIndex: number, value: string) => {
+    setJobContext(prev => prev.map((section, i) => {
+      if (i !== sectionIndex) return section;
+      return {
+        ...section,
+        items: section.items.map((item, j) => (j === itemIndex ? value : item))
+      };
+    }));
   };
 
-  const addResponsibility = () => {
-    setJobResponsibilities(prev => [...prev, '']);
+  const addContextItem = (sectionIndex: number) => {
+    setJobContext(prev => prev.map((section, i) => {
+      if (i !== sectionIndex) return section;
+      return {
+        ...section,
+        items: [...section.items, '']
+      };
+    }));
   };
 
-  const removeResponsibility = (index: number) => {
-    setJobResponsibilities(prev => {
-      const next = prev.filter((_, i) => i !== index);
-      return next.length ? next : [''];
-    });
+  const removeContextItem = (sectionIndex: number, itemIndex: number) => {
+    setJobContext(prev => prev.map((section, i) => {
+      if (i !== sectionIndex) return section;
+      const next = section.items.filter((_, j) => j !== itemIndex);
+      return {
+        ...section,
+        items: next.length ? next : ['']
+      };
+    }));
   };
   
   const generateInterviewQuestions = async (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements') => {
@@ -532,6 +581,13 @@ const InterviewSimulation = () => {
     if (type !== 'basic_quality' && (!selectedIndustryLocal || !selectedPositionLocal)) {
       setSetupError('请先选择行业和岗位，再开始针对性面试。');
       return;
+    }
+    if (type !== 'basic_quality') {
+      const hasUsefulContext = jobDescription.trim() || jobContext.some(section => section.items.some(item => item.trim()));
+      if (!hasUsefulContext) {
+        setSetupError('请至少补充岗位介绍或一项职责/技能，再开始面试。');
+        return;
+      }
     }
     setSetupError('');
     
@@ -1335,21 +1391,47 @@ const InterviewSimulation = () => {
                   </button>
                 </div>
                 <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-[220px_1fr]">
-                  <div className="rounded-2xl border border-gray-700 bg-gray-900/70 p-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border ${
-                        digitalHumanMode === 'ask' ? 'border-purple-400 shadow-[0_0_24px_rgba(168,85,247,0.45)]' : 'border-gray-600'
-                      } bg-gradient-to-br from-slate-950 via-purple-700 to-indigo-500`}>
-                        <div className={`absolute inset-0 ${digitalHumanMode === 'ask' ? 'animate-pulse bg-white/15' : 'bg-white/5'}`} />
-                        <div className="relative z-10 flex items-center gap-0.5">
-                          <span className="h-5 w-1 rounded-full bg-white/90" />
-                          <span className="h-7 w-1 rounded-full bg-white/70" />
-                          <span className="h-4 w-1 rounded-full bg-white/90" />
+                  <div className="rounded-3xl border border-gray-700 bg-gradient-to-b from-gray-900 to-gray-950 p-4">
+                    <div className="relative overflow-hidden rounded-2xl border border-gray-700 bg-[radial-gradient(circle_at_top,_rgba(168,85,247,0.28),_transparent_55%),linear-gradient(180deg,_rgba(17,24,39,0.9),_rgba(3,7,18,0.96))] p-4">
+                      <div className="absolute left-0 right-0 top-0 h-px bg-gradient-to-r from-transparent via-purple-400 to-transparent opacity-80" />
+                      <div className="absolute inset-x-6 top-4 h-20 rounded-full bg-purple-500/10 blur-2xl" />
+                      <div className="relative flex items-center justify-center">
+                        <div className={`relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border-2 ${
+                          digitalHumanMode === 'ask' ? 'border-purple-300 shadow-[0_0_40px_rgba(168,85,247,0.55)]' : 'border-gray-600'
+                        } bg-gradient-to-br from-slate-950 via-purple-700 to-indigo-500`}>
+                          <div className={`absolute inset-0 ${digitalHumanMode === 'ask' ? 'animate-pulse bg-white/15' : 'bg-white/5'}`} />
+                          <div className="absolute inset-3 rounded-full border border-white/15" />
+                          <div className="relative z-10 flex items-end gap-1">
+                            <span className="h-6 w-1.5 rounded-full bg-white/90" />
+                            <span className="h-10 w-1.5 rounded-full bg-white/70" />
+                            <span className="h-7 w-1.5 rounded-full bg-white/90" />
+                          </div>
                         </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="text-sm text-gray-400">AI数字人面试官</p>
-                        <h3 className="truncate text-lg font-semibold text-white">{interviewerName}</h3>
+                      <div className="mt-4 flex items-center justify-between">
+                        <div className="min-w-0">
+                          <p className="text-xs uppercase tracking-[0.3em] text-purple-300">AI数字人面试官</p>
+                          <h3 className="truncate text-lg font-semibold text-white">{interviewerName}</h3>
+                        </div>
+                        <div className={`rounded-full px-3 py-1 text-xs ${
+                          isRecording ? 'bg-emerald-500/20 text-emerald-300' : 'bg-gray-800 text-gray-300'
+                        }`}>
+                          {isRecording ? 'Listening' : 'Asking'}
+                        </div>
+                      </div>
+                      <div className="mt-4 grid grid-cols-3 gap-2">
+                        <div className="rounded-xl border border-gray-700 bg-white/5 p-2 text-center">
+                          <div className={`mx-auto mb-2 h-2 w-2 rounded-full ${digitalHumanMode === 'ask' ? 'bg-purple-400 animate-pulse' : 'bg-gray-500'}`} />
+                          <p className="text-[11px] text-gray-400">聚焦</p>
+                        </div>
+                        <div className="rounded-xl border border-gray-700 bg-white/5 p-2 text-center">
+                          <div className={`mx-auto mb-2 h-2 w-2 rounded-full ${isRecording ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
+                          <p className="text-[11px] text-gray-400">监听</p>
+                        </div>
+                        <div className="rounded-xl border border-gray-700 bg-white/5 p-2 text-center">
+                          <div className={`mx-auto mb-2 h-2 w-2 rounded-full ${voiceMode === 'auto' ? 'bg-cyan-400 animate-pulse' : 'bg-gray-500'}`} />
+                          <p className="text-[11px] text-gray-400">语音</p>
+                        </div>
                       </div>
                     </div>
                     <div className="mt-4 space-y-2 text-sm text-gray-300">
@@ -1623,37 +1705,44 @@ const InterviewSimulation = () => {
                     className="w-full rounded-lg border border-gray-600 bg-gray-700 p-3 text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
                   />
                 </div>
-                <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <label className="block text-sm font-medium text-gray-300">岗位职责</label>
-                    <button
-                      type="button"
-                      onClick={addResponsibility}
-                      className="text-xs text-purple-300 hover:text-purple-200"
-                    >
-                      + 添加职责
-                    </button>
-                  </div>
-                  <div className="space-y-2">
-                    {jobResponsibilities.map((item, index) => (
-                      <div key={index} className="flex items-start gap-2">
-                        <div className="mt-3 h-2 w-2 rounded-full bg-purple-400" />
-                        <input
-                          value={item}
-                          onChange={(e) => updateResponsibility(index, e.target.value)}
-                          placeholder={`职责 ${index + 1}`}
-                          className="min-w-0 flex-1 rounded-lg border border-gray-600 bg-gray-700 p-3 text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
-                        />
+                <div className="space-y-4">
+                  {jobContext.map((section, sectionIndex) => (
+                    <div key={section.title} className="rounded-2xl border border-gray-700 bg-gray-900/50 p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-semibold text-white">{section.title}</h3>
+                          <p className="text-xs text-gray-400">每项一行，越具体越好。</p>
+                        </div>
                         <button
                           type="button"
-                          onClick={() => removeResponsibility(index)}
-                          className="mt-2 rounded-lg border border-gray-600 px-3 py-2 text-xs text-gray-300 hover:border-red-500 hover:text-red-300"
+                          onClick={() => addContextItem(sectionIndex)}
+                          className="text-xs text-purple-300 hover:text-purple-200"
                         >
-                          删除
+                          + 添加
                         </button>
                       </div>
-                    ))}
-                  </div>
+                      <div className="space-y-2">
+                        {section.items.map((item, itemIndex) => (
+                          <div key={`${section.title}-${itemIndex}`} className="flex items-start gap-2">
+                            <div className="mt-3 h-2 w-2 rounded-full bg-purple-400" />
+                            <input
+                              value={item}
+                              onChange={(e) => updateContextItem(sectionIndex, itemIndex, e.target.value)}
+                              placeholder={`${section.title} ${itemIndex + 1}`}
+                              className="min-w-0 flex-1 rounded-lg border border-gray-600 bg-gray-700 p-3 text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeContextItem(sectionIndex, itemIndex)}
+                              className="mt-2 rounded-lg border border-gray-600 px-3 py-2 text-xs text-gray-300 hover:border-red-500 hover:text-red-300"
+                            >
+                              删除
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
               <div className="mt-4 rounded-xl border border-gray-700 bg-gray-900/60 p-4 text-sm text-gray-300">
