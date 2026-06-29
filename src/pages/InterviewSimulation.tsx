@@ -100,32 +100,51 @@ const InterviewSimulation = () => {
   const [selectedIndustryLocal, setSelectedIndustryLocal] = useState(selectedJob?.industry || '');
   const [selectedPositionLocal, setSelectedPositionLocal] = useState(selectedJob?.title || '');
   const [jobDescription, setJobDescription] = useState(selectedJob?.description || '');
-  const [jobResponsibilities, setJobResponsibilities] = useState(
-    Array.isArray(selectedJob?.requirements) ? selectedJob.requirements.join('\n') : ''
+  const [jobResponsibilities, setJobResponsibilities] = useState<string[]>(
+    Array.isArray(selectedJob?.requirements) ? selectedJob.requirements.slice(0, 6) : ['']
   );
   const [digitalHumanMode, setDigitalHumanMode] = useState<'listen' | 'ask' | 'idle'>('idle');
+  const [voiceMode, setVoiceMode] = useState<'auto' | 'push-to-talk'>('auto');
 
   useEffect(() => {
     if (!selectedJob) return;
     setSelectedIndustryLocal(selectedJob.industry || '');
     setSelectedPositionLocal(selectedJob.title || '');
     setJobDescription(selectedJob.description || '');
-    setJobResponsibilities(Array.isArray(selectedJob.requirements) ? selectedJob.requirements.join('\n') : '');
+    setJobResponsibilities(Array.isArray(selectedJob.requirements) ? selectedJob.requirements.slice(0, 6) : ['']);
   }, [selectedJob]);
 
   const availablePositions = selectedIndustryLocal ? (industryMap[selectedIndustryLocal] || []) : [];
 
   const buildQuestionContext = () => {
+    const responsibilityLines = jobResponsibilities
+      .map(item => item.trim())
+      .filter(Boolean);
     const parts = [
       selectedIndustryLocal ? `行业：${selectedIndustryLocal}` : '',
       selectedPositionLocal ? `岗位：${selectedPositionLocal}` : '',
       selectedJob?.company ? `目标公司：${selectedJob.company}` : '',
       jobDescription.trim() ? `岗位介绍：${jobDescription.trim()}` : '',
-      jobResponsibilities.trim() ? `岗位职责：${jobResponsibilities.trim()}` : '',
+      responsibilityLines.length ? `岗位职责：\n${responsibilityLines.map((item, index) => `${index + 1}. ${item}`).join('\n')}` : '',
       assessmentData?.aiAnalysis ? `候选人画像：${String(assessmentData.aiAnalysis).slice(0, 500)}` : '',
       assessmentData?.traits?.length ? `候选人优势标签：${assessmentData.traits.slice(0, 5).join('、')}` : ''
     ].filter(Boolean);
     return parts.join('\n');
+  };
+
+  const updateResponsibility = (index: number, value: string) => {
+    setJobResponsibilities(prev => prev.map((item, i) => (i === index ? value : item)));
+  };
+
+  const addResponsibility = () => {
+    setJobResponsibilities(prev => [...prev, '']);
+  };
+
+  const removeResponsibility = (index: number) => {
+    setJobResponsibilities(prev => {
+      const next = prev.filter((_, i) => i !== index);
+      return next.length ? next : [''];
+    });
   };
   
   const generateInterviewQuestions = async (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements') => {
@@ -354,6 +373,7 @@ const InterviewSimulation = () => {
     const answerKey = getAnswerKey(currentRound, currentQuestionIndex);
     setCurrentAnswer(answers[answerKey] || '');
     setSpeechStatus('');
+    setDigitalHumanMode('ask');
   }, [currentStep, interviewType, currentRoundIndex, currentQuestionIndex]);
 
   useEffect(() => () => releaseMedia(), []);
@@ -1318,10 +1338,14 @@ const InterviewSimulation = () => {
                   <div className="rounded-2xl border border-gray-700 bg-gray-900/70 p-4">
                     <div className="flex items-center gap-3">
                       <div className={`relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border ${
-                        digitalHumanMode === 'ask' ? 'border-purple-400' : 'border-gray-600'
-                      } bg-gradient-to-br from-purple-600 via-indigo-600 to-blue-500`}>
-                        <div className="absolute inset-0 animate-pulse rounded-full bg-white/10" />
-                        <Users className="relative z-10 h-7 w-7 text-white" />
+                        digitalHumanMode === 'ask' ? 'border-purple-400 shadow-[0_0_24px_rgba(168,85,247,0.45)]' : 'border-gray-600'
+                      } bg-gradient-to-br from-slate-950 via-purple-700 to-indigo-500`}>
+                        <div className={`absolute inset-0 ${digitalHumanMode === 'ask' ? 'animate-pulse bg-white/15' : 'bg-white/5'}`} />
+                        <div className="relative z-10 flex items-center gap-0.5">
+                          <span className="h-5 w-1 rounded-full bg-white/90" />
+                          <span className="h-7 w-1 rounded-full bg-white/70" />
+                          <span className="h-4 w-1 rounded-full bg-white/90" />
+                        </div>
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm text-gray-400">AI数字人面试官</p>
@@ -1331,7 +1355,8 @@ const InterviewSimulation = () => {
                     <div className="mt-4 space-y-2 text-sm text-gray-300">
                       <p>行业：{selectedIndustryLocal || '未选择'}</p>
                       <p>岗位：{selectedPositionLocal || '未选择'}</p>
-                      <p>状态：{isRecording ? '正在听取回答' : '等待求职者回答'}</p>
+                      <p>状态：{isRecording ? '正在听取回答' : digitalHumanMode === 'ask' ? '正在提问' : '等待开始'}</p>
+                      <p>语音模式：{voiceMode === 'auto' ? '自动识别' : '按住说话'}</p>
                     </div>
                   </div>
                   <div className="rounded-2xl border border-gray-700 bg-gray-900/70 p-4">
@@ -1345,6 +1370,26 @@ const InterviewSimulation = () => {
                         : '点击开始面试后，数字人面试官将进入提问状态。'}
                     </p>
                   </div>
+                </div>
+                <div className="mt-4 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setVoiceMode('auto')}
+                    className={`rounded-full px-4 py-2 text-sm ${
+                      voiceMode === 'auto' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300'
+                    }`}
+                  >
+                    自动语音
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVoiceMode('push-to-talk')}
+                    className={`rounded-full px-4 py-2 text-sm ${
+                      voiceMode === 'push-to-talk' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300'
+                    }`}
+                  >
+                    按住说话
+                  </button>
                 </div>
                 <div className="mt-5">
                   <label className="mb-2 block text-sm font-medium text-gray-300">回答记录</label>
@@ -1579,14 +1624,36 @@ const InterviewSimulation = () => {
                   />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-300">岗位职责</label>
-                  <textarea
-                    value={jobResponsibilities}
-                    onChange={(e) => setJobResponsibilities(e.target.value)}
-                    placeholder="每行写一条职责，例如：负责目标岗位的日常执行与复盘"
-                    rows={4}
-                    className="w-full rounded-lg border border-gray-600 bg-gray-700 p-3 text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
-                  />
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="block text-sm font-medium text-gray-300">岗位职责</label>
+                    <button
+                      type="button"
+                      onClick={addResponsibility}
+                      className="text-xs text-purple-300 hover:text-purple-200"
+                    >
+                      + 添加职责
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {jobResponsibilities.map((item, index) => (
+                      <div key={index} className="flex items-start gap-2">
+                        <div className="mt-3 h-2 w-2 rounded-full bg-purple-400" />
+                        <input
+                          value={item}
+                          onChange={(e) => updateResponsibility(index, e.target.value)}
+                          placeholder={`职责 ${index + 1}`}
+                          className="min-w-0 flex-1 rounded-lg border border-gray-600 bg-gray-700 p-3 text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeResponsibility(index)}
+                          className="mt-2 rounded-lg border border-gray-600 px-3 py-2 text-xs text-gray-300 hover:border-red-500 hover:text-red-300"
+                        >
+                          删除
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div className="mt-4 rounded-xl border border-gray-700 bg-gray-900/60 p-4 text-sm text-gray-300">
@@ -1669,11 +1736,11 @@ const InterviewSimulation = () => {
                     <button
                       onClick={() => startInterview(type.id as any)}
                       disabled={!(selectedIndustryLocal && selectedPositionLocal) && type.id !== 'basic_quality'}
-                      className="w-full flex items-center justify-center text-blue-400 text-sm font-medium group-hover:text-blue-300 transition-colors"
-                  >
-                    开始面试
-                    <ArrowRight className="h-3 w-3 ml-1 group-hover:translate-x-1 transition-transform" />
-                  </button>
+                      className="w-full flex items-center justify-center text-blue-400 text-sm font-medium group-hover:text-blue-300 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {type.id === 'basic_quality' ? '开始基础面试' : '开始针对性面试'}
+                      <ArrowRight className="h-3 w-3 ml-1 group-hover:translate-x-1 transition-transform" />
+                    </button>
                   </div>
                 ))}
               </div>
