@@ -67,6 +67,13 @@ interface JobContextSection {
   items: string[];
 }
 
+interface InterviewQuestionPack {
+  opening: string[];
+  behavior: string[];
+  deep: string[];
+  reask: string[];
+}
+
 const InterviewSimulation = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
@@ -99,6 +106,7 @@ const InterviewSimulation = () => {
   // 面试结果
   const [interviewResult, setInterviewResult] = useState<InterviewResult | null>(null);
   const [llmQuestions, setLlmQuestions] = useState<Record<string, string[]>>({});
+  const [questionPacks, setQuestionPacks] = useState<Partial<Record<'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements', InterviewQuestionPack>>>({});
   const [generating, setGenerating] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [setupError, setSetupError] = useState('');
@@ -121,6 +129,7 @@ const InterviewSimulation = () => {
   ]);
   const [digitalHumanMode, setDigitalHumanMode] = useState<'listen' | 'ask' | 'idle'>('idle');
   const [voiceMode, setVoiceMode] = useState<'auto' | 'push-to-talk'>('auto');
+  const lastSpokenQuestionRef = useRef('');
 
   useEffect(() => {
     if (!selectedJob) return;
@@ -195,15 +204,111 @@ const InterviewSimulation = () => {
       };
     }));
   };
+
+  const getQuestionDistribution = (count: number) => {
+    const opening = Math.max(1, Math.round(count * 0.2));
+    let behavior = Math.max(2, Math.round(count * 0.35));
+    let deep = Math.max(2, Math.round(count * 0.3));
+    let reask = count - opening - behavior - deep;
+    if (reask < 1) {
+      deep += reask - 1;
+      reask = 1;
+    }
+    if (deep < 1) {
+      behavior += deep - 1;
+      deep = 1;
+    }
+    return {
+      opening: Math.max(1, opening),
+      behavior: Math.max(2, behavior),
+      deep: Math.max(1, deep),
+      reask: Math.max(1, reask)
+    };
+  };
+
+  const splitQuestionsIntoPack = (questions: string[], count: number): InterviewQuestionPack => {
+    const dist = getQuestionDistribution(Math.max(count, questions.length || 0));
+    const opening = questions.slice(0, dist.opening);
+    const behavior = questions.slice(dist.opening, dist.opening + dist.behavior);
+    const deep = questions.slice(dist.opening + dist.behavior, dist.opening + dist.behavior + dist.deep);
+    const reask = questions.slice(dist.opening + dist.behavior + dist.deep);
+    return {
+      opening: opening.length ? opening : [questions[0] || '请介绍一下你自己'],
+      behavior: behavior.length ? behavior : [questions[1] || questions[0] || '描述一次团队协作经历'],
+      deep: deep.length ? deep : [questions[2] || questions[1] || questions[0] || '请深入分析一个岗位相关问题'],
+      reask: reask.length ? reask : [questions[questions.length - 1] || '你有什么想反问我们的？']
+    };
+  };
+
+  const flattenQuestionPack = (pack?: InterviewQuestionPack | null) => {
+    if (!pack) return [];
+    return [...pack.opening, ...pack.behavior, ...pack.deep, ...pack.reask].filter(Boolean);
+  };
+
+  const buildFallbackPack = (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements') => {
+    return splitQuestionsIntoPack(fallbackQuestions[type].slice(0, interviewTypes.find(t => t.id === type)?.questions || 8), interviewTypes.find(t => t.id === type)?.questions || 8);
+  };
+
+  const getActiveQuestionPack = (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements' | null) => {
+    if (!type) return null;
+    return questionPacks[type] || buildFallbackPack(type);
+  };
+
+  const getActiveQuestions = (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements' | null) => {
+    if (!type) return [];
+    const activePack = getActiveQuestionPack(type);
+    const packed = flattenQuestionPack(activePack);
+    if (packed.length) return packed;
+    return llmQuestions[type] || fallbackQuestions[type] || [];
+  };
+
+  const ensurePack = (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements', questions: string[]) => {
+    const count = interviewTypes.find(t => t.id === type)?.questions || questions.length || 8;
+    return splitQuestionsIntoPack(questions.slice(0, count), count);
+  };
+
+  const getQuestionStageLabel = (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements' | null, index: number) => {
+    if (!type) return '面试题';
+    const pack = getActiveQuestionPack(type);
+    if (!pack) return '面试题';
+    const sections = [
+      { label: '开场题', items: pack.opening },
+      { label: '行为题', items: pack.behavior },
+      { label: '深挖题', items: pack.deep },
+      { label: '反问题', items: pack.reask }
+    ];
+    let cursor = 0;
+    for (const section of sections) {
+      const nextCursor = cursor + section.items.length;
+      if (index < nextCursor) return section.label;
+      cursor = nextCursor;
+    }
+    return sections[sections.length - 1].label;
+  };
+
+  const speakQuestion = (text: string) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis || !text.trim()) return;
+    if (!isSpeakerOn) return;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'zh-CN';
+      utterance.rate = 0.95;
+      utterance.pitch = 1;
+      window.speechSynthesis.speak(utterance);
+    } catch (error) {
+      console.warn('[interview tts] failed:', error);
+    }
+  };
   
   const generateInterviewQuestions = async (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements') => {
     try {
       setGenerating(true);
-      const sys = '你是资深中文面试官。仅输出一个JSON数组，数组元素为面试问题字符串；不要输出Markdown或额外文本。';
+      const sys = '你是资深中文面试官。仅输出一个JSON对象，包含 opening, behavior, deep, reask 四个数组字段，值均为面试问题字符串；不要输出Markdown或额外文本。';
       const typeMeta = interviewTypes.find(t => t.id === type);
       const count = typeMeta?.questions || 10;
       const ctx = buildQuestionContext();
-      const user = `请生成${count}条${typeMeta?.name || ''}面试问题，必须严格贴合下面上下文，并优先围绕岗位职责、行业要求和候选人画像出题。\n${ctx}\n仅返回JSON数组（纯字符串问题列表）。`;
+      const user = `请生成${count}条${typeMeta?.name || ''}面试问题，必须严格贴合下面上下文，并优先围绕岗位职责、行业要求和候选人画像出题。\n${ctx}\n请按四类输出：opening(开场题), behavior(行为题), deep(深挖题), reask(反问题)。仅返回JSON对象。`;
   
       const resp = await fetch(apiUrl('/api/deepseek/chat'), {
         method: 'POST',
@@ -214,9 +319,17 @@ const InterviewSimulation = () => {
       if (!resp.ok) throw new Error(await resp.text());
       let content = (await resp.json())?.choices?.[0]?.message?.content || '[]';
       content = String(content).trim().replace(/^```json|^```|```$/g, '');
-      const arr = JSON.parse(content);
-      if (!Array.isArray(arr)) throw new Error('Invalid JSON');
-      setLlmQuestions(prev => ({ ...prev, [type]: arr.map((s: any) => String(s)) }));
+      const parsed = JSON.parse(content);
+      const normalizedPack: InterviewQuestionPack = {
+        opening: Array.isArray(parsed?.opening) ? parsed.opening.map((s: any) => String(s)) : [],
+        behavior: Array.isArray(parsed?.behavior) ? parsed.behavior.map((s: any) => String(s)) : [],
+        deep: Array.isArray(parsed?.deep) ? parsed.deep.map((s: any) => String(s)) : [],
+        reask: Array.isArray(parsed?.reask) ? parsed.reask.map((s: any) => String(s)) : []
+      };
+      const flattened = flattenQuestionPack(normalizedPack).slice(0, Math.max(count, 8));
+      if (!flattened.length) throw new Error('Invalid JSON');
+      setQuestionPacks(prev => ({ ...prev, [type]: normalizedPack.opening.length || normalizedPack.behavior.length || normalizedPack.deep.length || normalizedPack.reask.length ? normalizedPack : ensurePack(type, flattened) }));
+      setLlmQuestions(prev => ({ ...prev, [type]: flattened }));
     } catch (e) {
       console.warn('[DeepSeek] interview question generation failed:', e);
     } finally {
@@ -424,6 +537,16 @@ const InterviewSimulation = () => {
     setSpeechStatus('');
     setDigitalHumanMode('ask');
   }, [currentStep, interviewType, currentRoundIndex, currentQuestionIndex]);
+
+  useEffect(() => {
+    if (currentStep !== 'interview' || !interviewType) return;
+    const questions = getActiveQuestions(interviewType);
+    const currentQuestion = questions[currentQuestionIndex] || '';
+    if (!currentQuestion || currentQuestion === lastSpokenQuestionRef.current) return;
+    lastSpokenQuestionRef.current = currentQuestion;
+    setDigitalHumanMode('ask');
+    speakQuestion(currentQuestion);
+  }, [currentStep, interviewType, currentQuestionIndex, questionPacks, llmQuestions, isSpeakerOn]);
 
   useEffect(() => () => releaseMedia(), []);
 
@@ -690,7 +813,7 @@ const InterviewSimulation = () => {
     saveCurrentAnswer();
     
     const currentRound = interviewRounds[currentRoundIndex];
-    const questions = currentRound ? currentRound.questions : (llmQuestions[interviewType] || fallbackQuestions[interviewType]);
+    const questions = currentRound ? currentRound.questions : getActiveQuestions(interviewType);
     
     if (currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex(prev => prev + 1);
@@ -719,7 +842,7 @@ const InterviewSimulation = () => {
     releaseMedia();
 
     const currentRound = interviewRounds[currentRoundIndex];
-    const questions = currentRound ? currentRound.questions : (interviewType ? (llmQuestions[interviewType] || fallbackQuestions[interviewType]) : []);
+    const questions = currentRound ? currentRound.questions : getActiveQuestions(interviewType);
     const allAnswers = {
       ...answers,
       ...(savedAnswer ? { [savedAnswer.key]: savedAnswer.value } : {})
@@ -1251,11 +1374,12 @@ const InterviewSimulation = () => {
   // 面试进行中
   if (currentStep === 'interview' && interviewType) {
     const currentRound = interviewRounds[currentRoundIndex];
-    const questions = currentRound ? currentRound.questions : (llmQuestions[interviewType] || fallbackQuestions[interviewType]);
+    const questions = currentRound ? currentRound.questions : getActiveQuestions(interviewType);
     const currentQuestion = questions[currentQuestionIndex];
     const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
     const isGroupInterview = currentRound?.type === 'group';
     const interviewerName = selectedPositionLocal || selectedJob?.title || 'AI 面试官';
+    const questionStage = getQuestionStageLabel(interviewType, currentQuestionIndex);
 
     return (
       <div className="min-h-screen bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
@@ -1443,6 +1567,7 @@ const InterviewSimulation = () => {
                   </div>
                   <div className="rounded-2xl border border-gray-700 bg-gray-900/70 p-4">
                     <p className="text-xs uppercase tracking-[0.2em] text-purple-300">Current Question</p>
+                    <p className="mt-1 text-xs text-gray-400">{questionStage}</p>
                     <p className="mt-2 text-base leading-7 text-white">
                       {currentQuestion}
                     </p>
@@ -1494,7 +1619,7 @@ const InterviewSimulation = () => {
             <div className="space-y-6">
               <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-gray-700">
                 <h2 className="text-xl font-bold text-white mb-4">
-                  {isGroupInterview ? '群体讨论题目' : '面试问题'}
+                  {isGroupInterview ? '群体讨论题目' : `${questionStage}`}
                 </h2>
                 <div className="bg-gray-700/50 rounded-lg p-4">
                   <p className="text-gray-300 leading-relaxed">{currentQuestion}</p>
