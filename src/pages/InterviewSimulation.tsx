@@ -57,6 +57,7 @@ interface InterviewResult {
   completedAt: Date;
   overallScore: number;
   scores: Record<string, number>;
+  stageScores?: Record<string, number>;
   feedback: string[];
   improvements: string[];
   answerRecords: string[];
@@ -265,6 +266,26 @@ const InterviewSimulation = () => {
   const ensurePack = (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements', questions: string[]) => {
     const count = interviewTypes.find(t => t.id === type)?.questions || questions.length || 8;
     return splitQuestionsIntoPack(questions.slice(0, count), count);
+  };
+
+  const calculateStageScores = (
+    type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements' | null,
+    allQuestions: string[],
+    allAnswers: Record<string, string>
+  ) => {
+    const keys = allQuestions.map((_, index) => `${type || 'single'}_${index}`);
+    const scoreFor = (start: number, end: number) => {
+      const subset = keys.slice(start, end);
+      const answered = subset.filter((key) => Boolean(allAnswers[key]));
+      return subset.length ? Math.max(55, Math.min(95, Math.round((answered.length / subset.length) * 100))) : 70;
+    };
+    const dist = getQuestionDistribution(allQuestions.length || 8);
+    return {
+      '开场题': scoreFor(0, dist.opening),
+      '行为题': scoreFor(dist.opening, dist.opening + dist.behavior),
+      '深挖题': scoreFor(dist.opening + dist.behavior, dist.opening + dist.behavior + dist.deep),
+      '反问题': scoreFor(dist.opening + dist.behavior + dist.deep, allQuestions.length)
+    };
   };
 
   const getQuestionStageLabel = (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements' | null, index: number) => {
@@ -857,6 +878,7 @@ const InterviewSimulation = () => {
     const targetBonus = selectedJob ? 8 : 0;
     const assessmentBonus = assessmentData?.traits?.length ? 6 : 0;
     const overallScore = Math.max(55, Math.min(95, Math.round(completionRate * 0.45 + evidenceScore + 20 + targetBonus + assessmentBonus)));
+    const stageScores = calculateStageScores(interviewType, questions, allAnswers);
 
     const result: InterviewResult = {
       type: interviewType,
@@ -864,6 +886,7 @@ const InterviewSimulation = () => {
       rounds: isMultiRound ? interviewRounds.length : 1,
       completedAt: new Date(),
       overallScore,
+      stageScores,
       scores: {
         '基本素养': Math.max(55, Math.min(95, overallScore + 2)),
         '沟通表达': Math.max(55, Math.min(95, completionRate + 5)),
@@ -880,6 +903,7 @@ const InterviewSimulation = () => {
         `本次记录 ${answeredCount}/${questions.length || 1} 个回答，平均回答长度 ${averageLength || 0} 字`,
         assessmentData?.traits?.length ? `已结合职业画像优势：${assessmentData.traits.slice(0, 3).join('、')}` : '职业画像信息不足，建议先完成测评',
         '能完成完整面试流程，具备继续迭代表达素材的基础',
+        `四段表现：开场 ${stageScores['开场题']} / 行为 ${stageScores['行为题']} / 深挖 ${stageScores['深挖题']} / 反问 ${stageScores['反问题']}`,
         ...(isMultiRound && interviewRounds.some(r => r.type === 'group') ? [
           '多轮/群面流程已覆盖，后续应重点训练倾听、总结和推动共识'
         ] : [])
@@ -927,6 +951,9 @@ const InterviewSimulation = () => {
       '',
       '回答记录：',
       ...interviewResult.answerRecords.map((item, index) => `Q${index + 1}: ${item}`),
+      '',
+      '四段表现：',
+      ...Object.entries(interviewResult.stageScores || {}).map(([name, score]) => `- ${name}: ${score}`),
       '',
       '分项评分：',
       ...Object.entries(interviewResult.scores).map(([name, score]) => `- ${name}: ${score}`),
@@ -1286,6 +1313,28 @@ const InterviewSimulation = () => {
               </div>
               <p className="text-gray-400 text-lg">总体表现评分</p>
             </div>
+
+            {interviewResult.stageScores && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                {Object.entries(interviewResult.stageScores).map(([name, score]) => (
+                  <div key={name} className="rounded-2xl border border-gray-700 bg-gray-900/60 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-400">{name}</p>
+                        <p className={`mt-1 text-2xl font-bold ${getScoreColor(score)}`}>{score}</p>
+                      </div>
+                      <div className="h-12 w-12 rounded-full border border-gray-700 bg-gradient-to-br from-purple-600/20 to-blue-600/20" />
+                    </div>
+                    <div className="mt-3 h-2 w-full rounded-full bg-gray-700">
+                      <div
+                        className="h-2 rounded-full bg-gradient-to-r from-blue-400 to-purple-400 transition-all duration-500"
+                        style={{ width: `${score}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* 各项评分 */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
