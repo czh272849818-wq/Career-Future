@@ -75,6 +75,8 @@ interface InterviewQuestionPack {
   reask: string[];
 }
 
+type InterviewPromptStage = 'main' | 'followup';
+
 const InterviewSimulation = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
@@ -89,7 +91,10 @@ const InterviewSimulation = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
+  const [currentPromptStage, setCurrentPromptStage] = useState<InterviewPromptStage>('main');
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [followupAnswers, setFollowupAnswers] = useState<Record<string, string>>({});
+  const [followupPrompts, setFollowupPrompts] = useState<Record<string, string>>({});
   const [currentAnswer, setCurrentAnswer] = useState('');
   const [speechStatus, setSpeechStatus] = useState('');
   const [timeRemaining, setTimeRemaining] = useState(180);
@@ -553,21 +558,29 @@ const InterviewSimulation = () => {
   useEffect(() => {
     if (currentStep !== 'interview' || !interviewType) return;
     const currentRound = interviewRounds[currentRoundIndex];
-    const answerKey = getAnswerKey(currentRound, currentQuestionIndex);
-    setCurrentAnswer(answers[answerKey] || '');
+    const questionKey = getCurrentQuestionKey(currentRound, currentQuestionIndex, currentPromptStage);
+    setCurrentAnswer((currentPromptStage === 'followup' ? followupAnswers[questionKey] : answers[questionKey]) || '');
     setSpeechStatus('');
     setDigitalHumanMode('ask');
-  }, [currentStep, interviewType, currentRoundIndex, currentQuestionIndex]);
+  }, [currentStep, interviewType, currentRoundIndex, currentQuestionIndex, currentPromptStage, answers, followupAnswers]);
 
   useEffect(() => {
     if (currentStep !== 'interview' || !interviewType) return;
-    const questions = getActiveQuestions(interviewType);
+    const currentRound = interviewRounds[currentRoundIndex];
+    const questions = currentRound ? currentRound.questions : getActiveQuestions(interviewType);
     const currentQuestion = questions[currentQuestionIndex] || '';
-    if (!currentQuestion || currentQuestion === lastSpokenQuestionRef.current) return;
-    lastSpokenQuestionRef.current = currentQuestion;
+    if (!currentQuestion) return;
     setDigitalHumanMode('ask');
-    speakQuestion(currentQuestion);
-  }, [currentStep, interviewType, currentQuestionIndex, questionPacks, llmQuestions, isSpeakerOn]);
+    const questionStage = getQuestionStageLabel(interviewType, currentQuestionIndex);
+    const followupKey = getCurrentQuestionKey(currentRound, currentQuestionIndex, 'followup');
+    const promptText =
+      currentPromptStage === 'followup'
+        ? followupPrompts[followupKey] || buildFollowupQuestion(currentQuestion, currentAnswer, questionStage)
+        : currentQuestion;
+    if (promptText === lastSpokenQuestionRef.current) return;
+    lastSpokenQuestionRef.current = promptText;
+    speakQuestion(promptText);
+  }, [currentStep, interviewType, currentQuestionIndex, currentPromptStage, questionPacks, llmQuestions, isSpeakerOn, followupPrompts, currentRoundIndex, interviewRounds, currentAnswer]);
 
   useEffect(() => () => releaseMedia(), []);
 
@@ -612,19 +625,54 @@ const InterviewSimulation = () => {
     return `${interviewType || 'single'}_${questionIndex}`;
   };
 
+  const getFollowupKey = (round: InterviewRound | undefined, questionIndex: number) => {
+    return `${getAnswerKey(round, questionIndex)}_followup`;
+  };
+
+  const getCurrentQuestionKey = (round: InterviewRound | undefined, questionIndex: number, promptStage: InterviewPromptStage) => {
+    return promptStage === 'followup' ? getFollowupKey(round, questionIndex) : getAnswerKey(round, questionIndex);
+  };
+
+  const buildFollowupQuestion = (question: string, answer: string, stageLabel: string) => {
+    const trimmedQuestion = question.trim();
+    const trimmedAnswer = answer.trim();
+    const fallback = `请补充说明你对「${trimmedQuestion.slice(0, 24)}」的具体理解。`;
+    if (!trimmedAnswer) return fallback;
+
+    if (/经历|案例|项目|成果|结果/.test(trimmedQuestion)) {
+      return `你刚才提到「${trimmedAnswer.slice(0, 30)}」，请继续说清楚你的具体动作、关键决策和结果。`;
+    }
+    if (/如何|怎么|为什么|怎样/.test(trimmedQuestion)) {
+      return `围绕你刚才的回答，请再展开一个具体场景，说明你为什么这样判断。`;
+    }
+    return `基于你对${stageLabel}的回答，请再补充一个最能体现你能力的具体例子。`;
+  };
+
   const saveCurrentAnswer = () => {
     const currentRound = interviewRounds[currentRoundIndex];
     const answerKey = getAnswerKey(currentRound, currentQuestionIndex);
+    const currentKey = getCurrentQuestionKey(currentRound, currentQuestionIndex, currentPromptStage);
     const value = currentAnswer.trim();
-    setAnswers(prev => {
-      if (!value) {
-        const next = { ...prev };
-        delete next[answerKey];
-        return next;
-      }
-      return { ...prev, [answerKey]: value };
-    });
-    return value ? { key: answerKey, value } : null;
+    if (currentPromptStage === 'followup') {
+      setFollowupAnswers(prev => {
+        if (!value) {
+          const next = { ...prev };
+          delete next[getFollowupKey(currentRound, currentQuestionIndex)];
+          return next;
+        }
+        return { ...prev, [getFollowupKey(currentRound, currentQuestionIndex)]: value };
+      });
+    } else {
+      setAnswers(prev => {
+        if (!value) {
+          const next = { ...prev };
+          delete next[answerKey];
+          return next;
+        }
+        return { ...prev, [answerKey]: value };
+      });
+    }
+    return value ? { key: currentKey, value } : null;
   };
 
   const getTranscriber = async () => {
@@ -831,13 +879,40 @@ const InterviewSimulation = () => {
     if (isRecording || stopPromiseRef.current) {
       await stopRecording();
     }
-    saveCurrentAnswer();
-    
     const currentRound = interviewRounds[currentRoundIndex];
+    const answerKey = getAnswerKey(currentRound, currentQuestionIndex);
+    const currentQuestion = currentRound ? currentRound.questions[currentQuestionIndex] : getActiveQuestions(interviewType)[currentQuestionIndex];
+    const saved = saveCurrentAnswer();
+    
     const questions = currentRound ? currentRound.questions : getActiveQuestions(interviewType);
+
+    if (currentPromptStage === 'main') {
+      const followupKey = getFollowupKey(currentRound, currentQuestionIndex);
+      const nextFollowup = buildFollowupQuestion(
+        currentQuestion || '',
+        saved?.value || currentAnswer,
+        getQuestionStageLabel(interviewType, currentQuestionIndex)
+      );
+      setFollowupPrompts(prev => ({ ...prev, [followupKey]: nextFollowup }));
+      setCurrentPromptStage('followup');
+      setCurrentAnswer(followupAnswers[followupKey] || '');
+      setTimeRemaining(90);
+      setIsTimerActive(true);
+      setIsRecording(false);
+      lastSpokenQuestionRef.current = '';
+      return;
+    }
+
+    setCurrentPromptStage('main');
+    setCurrentAnswer('');
     
     if (currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex(prev => prev + 1);
+      setFollowupPrompts(prev => {
+        const next = { ...prev };
+        delete next[`${answerKey}_followup`];
+        return next;
+      });
       setTimeRemaining(180);
       setIsTimerActive(true);
       setIsRecording(false);
@@ -845,9 +920,11 @@ const InterviewSimulation = () => {
       // 进入下一轮面试
       setCurrentRoundIndex(prev => prev + 1);
       setCurrentQuestionIndex(0);
+      setCurrentPromptStage('main');
       setTimeRemaining(interviewRounds[currentRoundIndex + 1].duration * 60);
       setIsTimerActive(true);
       setIsRecording(false);
+      setFollowupPrompts({});
     } else {
       completeInterview();
     }
@@ -866,14 +943,17 @@ const InterviewSimulation = () => {
     const questions = currentRound ? currentRound.questions : getActiveQuestions(interviewType);
     const allAnswers = {
       ...answers,
+      ...followupAnswers,
       ...(savedAnswer ? { [savedAnswer.key]: savedAnswer.value } : {})
     };
+    const mainAnswerCount = Object.keys(answers).length;
+    const followupAnswerCount = Object.keys(followupAnswers).length;
+    const totalAnsweredCount = Object.values(allAnswers).filter(Boolean).length;
     const answeredValues = Object.values(allAnswers).filter(Boolean);
-    const answeredCount = new Set(answeredValues).size;
     const averageLength = answeredValues.length
       ? Math.round(answeredValues.reduce((sum, item) => sum + item.length, 0) / answeredValues.length)
       : 0;
-    const completionRate = questions.length ? Math.round((answeredCount / questions.length) * 100) : 70;
+    const completionRate = questions.length ? Math.round((totalAnsweredCount / (questions.length * 2)) * 100) : 70;
     const evidenceScore = Math.max(0, Math.min(25, Math.round(averageLength / 12)));
     const targetBonus = selectedJob ? 8 : 0;
     const assessmentBonus = assessmentData?.traits?.length ? 6 : 0;
@@ -900,7 +980,7 @@ const InterviewSimulation = () => {
       },
       feedback: [
         selectedJob ? `回答已围绕「${selectedJob.title}」展开，岗位聚焦度更高` : '建议先选择目标岗位，再进行针对性面试训练',
-        `本次记录 ${answeredCount}/${questions.length || 1} 个回答，平均回答长度 ${averageLength || 0} 字`,
+        `本次记录 ${mainAnswerCount}/${questions.length || 1} 个主答，${followupAnswerCount}/${questions.length || 1} 个追问，平均回答长度 ${averageLength || 0} 字`,
         assessmentData?.traits?.length ? `已结合职业画像优势：${assessmentData.traits.slice(0, 3).join('、')}` : '职业画像信息不足，建议先完成测评',
         '能完成完整面试流程，具备继续迭代表达素材的基础',
         `四段表现：开场 ${stageScores['开场题']} / 行为 ${stageScores['行为题']} / 深挖 ${stageScores['深挖题']} / 反问 ${stageScores['反问题']}`,
@@ -930,7 +1010,10 @@ const InterviewSimulation = () => {
     setCurrentStep('setup');
     setCurrentQuestionIndex(0);
     setCurrentRoundIndex(0);
+    setCurrentPromptStage('main');
     setAnswers({});
+    setFollowupAnswers({});
+    setFollowupPrompts({});
     setCurrentAnswer('');
     setSpeechStatus('');
     setInterviewResult(null);
@@ -950,7 +1033,8 @@ const InterviewSimulation = () => {
       `总体评分：${interviewResult.overallScore}`,
       '',
       '回答记录：',
-      ...interviewResult.answerRecords.map((item, index) => `Q${index + 1}: ${item}`),
+      ...Object.entries(answers).map(([key, value]) => `主答 ${key}: ${value}`),
+      ...Object.entries(followupAnswers).map(([key, value]) => `追问 ${key}: ${value}`),
       '',
       '四段表现：',
       ...Object.entries(interviewResult.stageScores || {}).map(([name, score]) => `- ${name}: ${score}`),
@@ -1429,6 +1513,11 @@ const InterviewSimulation = () => {
     const isGroupInterview = currentRound?.type === 'group';
     const interviewerName = selectedPositionLocal || selectedJob?.title || 'AI 面试官';
     const questionStage = getQuestionStageLabel(interviewType, currentQuestionIndex);
+    const currentFollowupKey = getFollowupKey(currentRound, currentQuestionIndex);
+    const displayedQuestion =
+      currentPromptStage === 'followup'
+        ? followupPrompts[currentFollowupKey] || buildFollowupQuestion(currentQuestion, currentAnswer, questionStage)
+        : currentQuestion;
 
     return (
       <div className="min-h-screen bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
@@ -1618,7 +1707,7 @@ const InterviewSimulation = () => {
                     <p className="text-xs uppercase tracking-[0.2em] text-purple-300">Current Question</p>
                     <p className="mt-1 text-xs text-gray-400">{questionStage}</p>
                     <p className="mt-2 text-base leading-7 text-white">
-                      {currentQuestion}
+                      {currentPromptStage === 'followup' ? '追问' : '主问题'}：{displayedQuestion}
                     </p>
                     <p className="mt-3 text-sm text-gray-400">
                       {digitalHumanMode === 'ask'
@@ -1779,11 +1868,13 @@ const InterviewSimulation = () => {
                 disabled={isTranscribing}
                 className="w-full inline-flex items-center justify-center px-6 py-3 bg-gradient-to-r from-green-600 to-blue-600 text-white font-semibold rounded-lg hover:from-green-700 hover:to-blue-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {currentQuestionIndex < questions.length - 1 
-                  ? '下一题' 
-                  : isMultiRound && currentRoundIndex < interviewRounds.length - 1
-                    ? '下一轮面试'
-                    : '完成面试'
+                  {currentPromptStage === 'main'
+                    ? '进入追问'
+                    : currentQuestionIndex < questions.length - 1
+                      ? '下一题'
+                      : isMultiRound && currentRoundIndex < interviewRounds.length - 1
+                        ? '下一轮面试'
+                        : '完成面试'
                 }
                 <ArrowRight className="h-5 w-5 ml-2" />
               </button>
