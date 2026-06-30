@@ -15,7 +15,9 @@ import {
   Target,
   Upload,
   FileText,
-  Bot
+  Bot,
+  Sparkles,
+  TrendingUp as TrendingUpIcon
 } from 'lucide-react';
 import { useAssessment } from '../contexts/AssessmentContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -244,6 +246,20 @@ const Assessment = () => {
   const progress = currentAssessment.length > 0 ? ((currentQuestionIndex + 1) / currentAssessment.length) * 100 : 0;
   const isLastQuestion = currentQuestionIndex === currentAssessment.length - 1;
   const assessmentHistory = getAssessmentHistory();
+  const latestHistory = assessmentHistory[0];
+
+  const getPrimarySummary = () => {
+    const traits = currentResult?.traits || [];
+    const recommendations = currentResult?.recommendations || [];
+    const topTrait = traits[0] || '职业画像已生成';
+    const topRecommendation = recommendations[0] || '继续补充岗位与项目证据';
+    const score = currentResult?.scores ? Object.values(currentResult.scores).reduce((sum, value) => sum + value, 0) / Math.max(1, Object.keys(currentResult.scores).length) : 0;
+    return {
+      headline: score >= 75 ? '你的优势已经比较清晰' : '当前更需要补齐证据与方向',
+      subline: `核心标签：${topTrait}`,
+      action: topRecommendation
+    };
+  };
 
   // Timer effect
   useEffect(() => {
@@ -915,110 +931,189 @@ const Assessment = () => {
   }
 
   if (showResult && currentResult) {
+    const summary = getPrimarySummary();
+    const scoreEntries = Object.entries(currentResult.scores);
+    const topScores = scoreEntries.slice(0, 4);
+    const recentComparison = latestHistory && latestHistory.id !== currentResult.id
+      ? latestHistory
+      : assessmentHistory[1];
+    const resultDelta = recentComparison
+      ? Math.round((Object.values(currentResult.scores).reduce((sum, value) => sum + value, 0) / Math.max(1, Object.keys(currentResult.scores).length)) - (Object.values(recentComparison.scores).reduce((sum, value) => sum + value, 0) / Math.max(1, Object.keys(recentComparison.scores).length)))
+      : null;
+
     return (
       <div className="min-h-screen bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto">
           <WorkflowProgress />
           
-          {/* Result Header */}
-          <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-xl p-8 mb-8 border border-gray-700">
-            <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-r from-green-400 to-blue-500 rounded-full mb-4">
-                <CheckCircle className="h-10 w-10 text-white" />
-              </div>
-              <h1 className="text-3xl font-bold text-white mb-2">测评完成！</h1>
-              <p className="text-gray-300">您的职业能力分析报告已生成</p>
-            </div>
-
-            {/* Radar Chart */}
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold text-white mb-4">能力雷达图</h2>
-              <div className="bg-gray-700/50 rounded-xl p-6">
-                <RadarChart data={currentResult.scores} />
-              </div>
-            </div>
-
-            {/* Traits Cloud */}
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold text-white mb-4">职业身份标签</h2>
-              <div className="flex flex-wrap gap-3">
-                {currentResult.traits.map((trait: string, index: number) => (
-                  <span
-                    key={index}
-                    className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-full font-medium text-sm shadow-md"
-                  >
-                    {trait}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* Recommendations */}
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold text-white mb-4">职业发展建议</h2>
-              <div className="space-y-3">
-                {currentResult.recommendations.map((rec: string, index: number) => (
-                  <div key={index} className="flex items-start space-x-3">
-                    <div className="flex-shrink-0 w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center mt-0.5">
-                      <span className="text-blue-600 font-semibold text-xs">{index + 1}</span>
+          <div className="space-y-8">
+            <section className="overflow-hidden rounded-3xl border border-gray-700 bg-gray-800/60 shadow-2xl">
+              <div className="grid gap-0 lg:grid-cols-[1.1fr_0.9fr]">
+                <div className="relative p-8">
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.12),transparent_34%)]" />
+                  <div className="relative">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs text-emerald-200">
+                      <Sparkles className="h-3.5 w-3.5" />
+                      分析报告
                     </div>
-                    <p className="text-gray-300">{rec}</p>
+                    <h1 className="mt-4 text-3xl font-bold text-white">你的职业画像已经生成</h1>
+                    <p className="mt-3 text-lg text-gray-300">{summary.headline}</p>
+                    <div className="mt-6 rounded-2xl border border-gray-700 bg-gray-900/70 p-5">
+                      <p className="text-sm text-gray-400">核心判断</p>
+                      <p className="mt-2 text-2xl font-semibold text-white">{summary.subline}</p>
+                      <p className="mt-3 text-gray-300">{summary.action}</p>
+                    </div>
+                    {resultDelta !== null && (
+                      <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-gray-700 bg-gray-900/70 px-3 py-1 text-sm text-gray-300">
+                        <TrendingUpIcon className="h-4 w-4 text-emerald-300" />
+                        相比上次平均分变化 {resultDelta >= 0 ? '+' : ''}{resultDelta}
+                      </div>
+                    )}
                   </div>
-                ))}
+                </div>
+
+                <div className="border-t border-gray-700 bg-gray-950/40 p-8 lg:border-l lg:border-t-0">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-400">总分</p>
+                      <p className="mt-1 text-5xl font-bold text-white">{Math.round(Object.values(currentResult.scores).reduce((sum, value) => sum + value, 0) / Math.max(1, Object.keys(currentResult.scores).length))}</p>
+                    </div>
+                    <CheckCircle className="h-12 w-12 text-emerald-400" />
+                  </div>
+                  <div className="mt-6 grid grid-cols-2 gap-3">
+                    {topScores.map(([name, score]) => (
+                      <div key={name} className="rounded-2xl border border-gray-700 bg-gray-900/70 p-4">
+                        <p className="text-xs text-gray-400">{name}</p>
+                        <p className="mt-1 text-2xl font-bold text-white">{score}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-6 flex flex-wrap gap-2">
+                    {currentResult.traits.slice(0, 4).map((trait: string) => (
+                      <span key={trait} className="rounded-full bg-blue-500/15 px-3 py-1 text-sm text-blue-200">
+                        {trait}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+              <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-xl font-semibold text-white">能力证据</h2>
+                  <BarChart3 className="h-5 w-5 text-blue-300" />
+                </div>
+                <div className="rounded-xl bg-gray-700/50 p-5">
+                  <RadarChart data={currentResult.scores} />
+                </div>
               </div>
 
-              <div className="mt-8 grid md:grid-cols-3 gap-4">
+              <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6">
+                <h2 className="text-xl font-semibold text-white mb-4">三条行动</h2>
+                <div className="space-y-3">
+                  {currentResult.recommendations.slice(0, 3).map((rec: string, index: number) => (
+                    <div key={index} className="flex items-start gap-3 rounded-xl border border-gray-700 bg-gray-900/60 p-4">
+                      <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-300 text-sm font-semibold">
+                        {index + 1}
+                      </div>
+                      <p className="text-gray-300">{rec}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="grid gap-6 lg:grid-cols-2">
+              <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6">
+                <h2 className="text-xl font-semibold text-white mb-4">职业身份标签</h2>
+                <div className="flex flex-wrap gap-3">
+                  {currentResult.traits.map((trait: string, index: number) => (
+                    <span key={index} className="rounded-full bg-gradient-to-r from-blue-500 to-purple-500 px-4 py-2 text-sm font-medium text-white">
+                      {trait}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6">
+                <h2 className="text-xl font-semibold text-white mb-4">结论摘要</h2>
+                <div className="space-y-3 text-gray-300">
+                  {currentResult.aiAnalysis ? (
+                    <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1">
+                        {currentResult.aiAnalysis}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p>AI 摘要尚未生成，但你已经有了可执行的测评结论。</p>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-white">下一步动作</h2>
+                <Target className="h-5 w-5 text-emerald-300" />
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
                 <button
                   onClick={handleGoToJobRecommendations}
-                  className="inline-flex items-center justify-center px-6 py-3 bg-gradient-to-r from-green-600 to-blue-600 text-white font-semibold rounded-lg hover:from-green-700 hover:to-blue-700 transition-all duration-200 shadow-lg"
+                  className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-500 to-blue-500 px-6 py-3 font-semibold text-gray-950 transition hover:from-emerald-400 hover:to-blue-400"
                 >
                   查看岗位推荐
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </button>
                 <button
-                  onClick={handleRestartAssessment}
-                  className="inline-flex items-center justify-center px-6 py-3 border-2 border-gray-600 text-gray-300 font-semibold rounded-lg hover:border-gray-500 hover:bg-gray-700 transition-all duration-200"
-                >
-                  重新测评
-                </button>
-                <button
                   onClick={() => setShowAdditionalInfo(true)}
-                  className="inline-flex items-center justify-center px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all duration-200"
+                  className="inline-flex items-center justify-center rounded-xl border border-gray-600 px-6 py-3 font-semibold text-gray-200 transition hover:border-gray-400 hover:bg-gray-700"
                 >
                   优化简历与画像
                 </button>
+                <button
+                  onClick={handleRestartAssessment}
+                  className="inline-flex items-center justify-center rounded-xl border border-gray-600 px-6 py-3 font-semibold text-gray-200 transition hover:border-gray-400 hover:bg-gray-700"
+                >
+                  重新测评
+                </button>
               </div>
-            </div>
+            </section>
 
-            {/* Recent Assessments */}
-            {isAuthenticated && assessmentHistory.length > 0 && (
-              <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-gray-700">
-                <h3 className="text-lg font-semibold text-white mb-4">最近记录</h3>
-                <div className="space-y-4">
-                  {assessmentHistory.slice(0, 3).map((result, index) => (
-                    <div key={result.id} className="border border-gray-600 rounded-lg p-4 hover:border-blue-400 transition-colors">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="font-medium text-white">测评 #{assessmentHistory.length - index}</p>
-                          <p className="text-sm text-gray-400">完成时间：{result.completedAt.toLocaleString()}</p>
+            {isAuthenticated && assessmentHistory.length > 1 && (
+              <section className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-xl font-semibold text-white">趋势对比</h2>
+                  <TrendingUpIcon className="h-5 w-5 text-blue-300" />
+                </div>
+                <div className="space-y-3">
+                  {assessmentHistory.slice(0, 3).map((result, index) => {
+                    const avg = Math.round(Object.values(result.scores).reduce((sum, value) => sum + value, 0) / Math.max(1, Object.keys(result.scores).length));
+                    return (
+                      <div key={result.id} className="rounded-xl border border-gray-700 bg-gray-900/60 p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-white">测评 #{assessmentHistory.length - index}</p>
+                            <p className="text-sm text-gray-400">{result.completedAt.toLocaleString()}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm text-gray-400">平均分</p>
+                            <p className="text-lg font-semibold text-white">{avg}</p>
+                          </div>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          {result.traits.map((trait, traitIndex) => (
-                            <span key={traitIndex} className="px-3 py-1 bg-blue-500/20 text-blue-300 rounded-full text-xs font-medium">
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {result.traits.slice(0, 4).map((trait) => (
+                            <span key={trait} className="rounded-full bg-blue-500/15 px-3 py-1 text-xs text-blue-200">
                               {trait}
                             </span>
                           ))}
                         </div>
                       </div>
-                      {result.aiAnalysis && (
-                        <p className="mt-3 text-sm text-gray-400">
-                          AI分析摘要：{result.aiAnalysis.slice(0, 160)}{result.aiAnalysis.length > 160 ? '…' : ''}
-                        </p>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
-              </div>
+              </section>
             )}
           </div>
         </div>
