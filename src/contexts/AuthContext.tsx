@@ -7,6 +7,7 @@ interface User {
   email: string;
   avatar?: string;
   phone?: string;
+  wechatOpenid?: string;
   registeredAt: Date;
 }
 

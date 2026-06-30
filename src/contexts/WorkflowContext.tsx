@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useAuth } from './AuthContext';
+import { apiUrl } from '../api';
 
 interface AssessmentData {
   answers: { [questionId: string]: string };
@@ -36,6 +38,7 @@ interface WorkflowContextType {
   selectedJob: JobRecommendation | null;
   optimizedResume: any;
   careerPlan: any;
+  reloadWorkflowState: () => Promise<void>;
   
   // Actions
   setCurrentStep: (step: number) => void;
@@ -50,48 +53,123 @@ interface WorkflowContextType {
 const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined);
 
 export function WorkflowProvider({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated, isReady: isAuthReady } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [assessmentData, setAssessmentData] = useState<AssessmentData>({
     answers: {}
   });
   const [recommendedJobs, setRecommendedJobs] = useState<JobRecommendation[]>([]);
   const [selectedJob, setSelectedJob] = useState<JobRecommendation | null>(null);
-  const [optimizedResume, setOptimizedResume] = useState(null);
-  const [careerPlan, setCareerPlan] = useState(null);
+  const [optimizedResumeState, setOptimizedResumeState] = useState<any>(null);
+  const [careerPlanState, setCareerPlanState] = useState<any>(null);
+  const userId = user?.id || null;
 
-  const updateAssessmentData = (data: Partial<AssessmentData>) => {
-    setAssessmentData(prev => ({ ...prev, ...data }));
-  };
+  const loadRemoteWorkflowState = useCallback(async (remoteUserId: string) => {
+    const resp = await fetch(apiUrl(`/api/users/${encodeURIComponent(remoteUserId)}/data`));
+    if (!resp.ok) return null;
+    const data = await resp.json().catch(() => null);
+    return data?.data || null;
+  }, []);
 
-  const selectJob = (job: JobRecommendation) => {
+  const persistWorkflowState = useCallback(async (patch: Record<string, any>) => {
+    if (!userId || !isAuthenticated) return;
+    await fetch(apiUrl(`/api/users/${encodeURIComponent(userId)}/data`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    });
+  }, [isAuthenticated, userId]);
+
+  const reloadWorkflowState = useCallback(async () => {
+    if (!isAuthReady || !userId) return;
+    const remote = await loadRemoteWorkflowState(userId).catch(() => null);
+    if (!remote) return;
+    setAssessmentData(prev => ({
+      ...prev,
+      ...(remote.assessmentData || {})
+    }));
+    setSelectedJob(remote.selectedJob || null);
+    setOptimizedResumeState(remote.optimizedResume || null);
+    setCareerPlanState(remote.careerPlan || null);
+  }, [isAuthReady, loadRemoteWorkflowState, userId]);
+
+  const updateAssessmentData = useCallback((data: Partial<AssessmentData>) => {
+    setAssessmentData(prev => {
+      const next = { ...prev, ...data };
+      void persistWorkflowState({ assessmentData: next });
+      return next;
+    });
+  }, [persistWorkflowState]);
+
+  const selectJob = useCallback((job: JobRecommendation) => {
     setSelectedJob(job);
-  };
+    void persistWorkflowState({ selectedJob: job });
+  }, [persistWorkflowState]);
 
-  const resetWorkflow = () => {
+  const setOptimizedResume = useCallback((resume: any) => {
+    setOptimizedResumeState(resume);
+    void persistWorkflowState({ optimizedResume: resume });
+  }, [persistWorkflowState]);
+
+  const setCareerPlan = useCallback((plan: any) => {
+    setCareerPlanState(plan);
+    void persistWorkflowState({ careerPlan: plan });
+  }, [persistWorkflowState]);
+
+  const resetWorkflow = useCallback(() => {
     setCurrentStep(1);
     setAssessmentData({ answers: {} });
     setRecommendedJobs([]);
     setSelectedJob(null);
-    setOptimizedResume(null);
-    setCareerPlan(null);
-  };
+    setOptimizedResumeState(null);
+    setCareerPlanState(null);
+    void persistWorkflowState({
+      assessmentData: { answers: {} },
+      selectedJob: null,
+      optimizedResume: null,
+      careerPlan: null
+    });
+  }, [persistWorkflowState]);
+
+  useEffect(() => {
+    if (!isAuthReady || !userId) return;
+    void reloadWorkflowState();
+  }, [isAuthReady, reloadWorkflowState, userId]);
+
+  const workflowValue = useMemo(() => ({
+    currentStep,
+    assessmentData,
+    recommendedJobs,
+    selectedJob,
+    optimizedResume: optimizedResumeState,
+    careerPlan: careerPlanState,
+    reloadWorkflowState,
+    setCurrentStep,
+    updateAssessmentData,
+    setRecommendedJobs,
+    selectJob,
+    setOptimizedResume,
+    setCareerPlan,
+    resetWorkflow
+  }), [
+    currentStep,
+    assessmentData,
+    recommendedJobs,
+    selectedJob,
+    optimizedResumeState,
+    careerPlanState,
+    reloadWorkflowState,
+    setCurrentStep,
+    updateAssessmentData,
+    setRecommendedJobs,
+    selectJob,
+    setOptimizedResume,
+    setCareerPlan,
+    resetWorkflow
+  ]);
 
   return (
-    <WorkflowContext.Provider value={{
-      currentStep,
-      assessmentData,
-      recommendedJobs,
-      selectedJob,
-      optimizedResume,
-      careerPlan,
-      setCurrentStep,
-      updateAssessmentData,
-      setRecommendedJobs,
-      selectJob,
-      setOptimizedResume,
-      setCareerPlan,
-      resetWorkflow
-    }}>
+    <WorkflowContext.Provider value={workflowValue}>
       {children}
     </WorkflowContext.Provider>
   );
