@@ -30,6 +30,26 @@ import { DEFAULT_LLM_MODEL, DEFAULT_TEMPERATURE } from '../llm/config';
 import { apiUrl } from '../api';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf';
 
+type StructuredAnalysis = {
+  scores?: Record<string, number>;
+  traits?: string[];
+  recommendations?: string[];
+  headline?: string;
+  subline?: string;
+  strengths?: string[];
+  risks?: string[];
+  fit?: string[];
+  actions?: string[];
+  evidence?: string[];
+  summary?: string;
+};
+
+type AnalysisOutcome = {
+  analysisText: string;
+  resumeText: string;
+  structured: StructuredAnalysis | null;
+};
+
 const Assessment = () => {
   const [selectedType, setSelectedType] = useState<'general' | 'industry' | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<string>('');
@@ -52,11 +72,7 @@ const Assessment = () => {
   const [aiAnalysisText, setAiAnalysisText] = useState('');
   const [aiError, setAiError] = useState('');
   // 结构化分析（JSON）结果：scores/traits/recommendations
-  const [aiStructured, setAiStructured] = useState<{
-    scores?: Record<string, number>;
-    traits?: string[];
-    recommendations?: string[];
-  } | null>(null);
+  const [aiStructured, setAiStructured] = useState<StructuredAnalysis | null>(null);
   const [aiSummaryMode, setAiSummaryMode] = useState<'compact' | 'full'>('compact');
   // 新增：题库优化提示
   // 已在顶部声明 showOptimizedNotice，避免重复
@@ -532,7 +548,10 @@ const Assessment = () => {
   };
 
   // DeepSeek AI analysis for additional info（融合简历、测评、性格、价值观、专业）
-  const analyzeAdditionalInfo = async () => {
+  const analyzeAdditionalInfo = async (): Promise<AnalysisOutcome> => {
+    let generatedAnalysisText = '';
+    let structuredResult: StructuredAnalysis | null = null;
+
     try {
       setAiAnalyzing(true);
       setAiError('');
@@ -557,29 +576,24 @@ const Assessment = () => {
           });
           const resp = await postExtractText({ fileName: file.name, mimeType: file.type, dataBase64: base64 });
           const data = await resp.json();
-          finalResumeText = String(data?.text || '');
-          setResumeText(finalResumeText.slice(0, 12000));
+          finalResumeText = String(data?.text || '').slice(0, 12000);
+          setResumeText(finalResumeText);
           setResumeMethod(String(data?.method || ''));
           // PDF文本过短先尝试客户端文本提取，再OCR
           if (String(data?.method || '') === 'pdf' && finalResumeText.trim().length < 100) {
             const clientText = await tryPdfTextClient();
             if (clientText && clientText.trim().length >= 100) {
-              finalResumeText = clientText;
+              finalResumeText = clientText.slice(0, 12000);
             } else {
               const ocrText = await tryOcrPdfClient();
               if (ocrText && ocrText.trim().length > 0) {
-                finalResumeText = ocrText;
+                finalResumeText = ocrText.slice(0, 12000);
               }
             }
           }
         } catch (preParseErr) {
           console.warn('[Pre-Analyze parse] failed:', preParseErr);
         }
-      }
-
-      if (!finalResumeText) {
-        setAiError('必须先解析简历文档后才能进行AI分析，请上传可读文本（DOCX/TXT）或点击OCR后重试。');
-        return;
       }
 
       // 生成测评摘要（MBTI + 盖洛普Top3 + 行业/岗位）
@@ -624,7 +638,7 @@ const Assessment = () => {
       ];
       const summary = summaryLines.join('\n');
 
-      const resumeTxt = finalResumeText || '';
+      const resumeTxt = finalResumeText || '未上传简历';
       const userContent = `请基于以下用户资料进行融合分析，并以层级化中文要点输出：\n\n` +
         `【测评答案摘要】\n${summary}\n\n` +
         `【简历文本】\n${resumeTxt}\n\n` +
@@ -667,7 +681,10 @@ const Assessment = () => {
             try {
               const evt = JSON.parse(payload);
               const delta = evt?.choices?.[0]?.delta?.content || '';
-              if (delta) setAiAnalysisText(prev => prev + delta);
+              if (delta) {
+                generatedAnalysisText += delta;
+                setAiAnalysisText(generatedAnalysisText);
+              }
             } catch {}
           }
         }
@@ -680,8 +697,8 @@ const Assessment = () => {
             body: JSON.stringify({ messages, model: DEFAULT_LLM_MODEL, temperature: DEFAULT_TEMPERATURE, stream: false })
           });
           const data = await resp2.json();
-          const text = data?.choices?.[0]?.message?.content || 'AI分析生成失败';
-          setAiAnalysisText(text);
+          generatedAnalysisText = data?.choices?.[0]?.message?.content || '';
+          setAiAnalysisText(generatedAnalysisText);
         } catch (e2) {
           setAiError('AI分析失败，请稍后重试');
         }
@@ -716,19 +733,7 @@ const Assessment = () => {
         }
         try {
           const parsed = JSON.parse(content);
-          const normalized: {
-            scores?: Record<string, number>;
-            traits?: string[];
-            recommendations?: string[];
-            headline?: string;
-            subline?: string;
-            strengths?: string[];
-            risks?: string[];
-            fit?: string[];
-            actions?: string[];
-            evidence?: string[];
-            summary?: string;
-          } = {};
+          const normalized: StructuredAnalysis = {};
           if (parsed && typeof parsed === 'object') {
             if (parsed.scores && typeof parsed.scores === 'object') {
               const sc: Record<string, number> = {};
@@ -756,6 +761,7 @@ const Assessment = () => {
             if (typeof parsed.summary === 'string') normalized.summary = parsed.summary.trim();
           }
           if (normalized.scores || normalized.traits || normalized.recommendations || normalized.summary) {
+            structuredResult = normalized;
             setAiStructured(normalized);
           }
         } catch (jsonErr) {
@@ -765,27 +771,31 @@ const Assessment = () => {
       } catch (fetchJsonErr) {
         console.warn('[AI Structured] fetch failed:', fetchJsonErr);
       }
+
+      return { analysisText: generatedAnalysisText, resumeText: finalResumeText, structured: structuredResult };
     } catch (err) {
       console.error('[AI Analyze] error:', err);
       setAiError('分析过程出现错误');
+      return { analysisText: '', resumeText: resumeText || '', structured: null };
     } finally {
       setAiAnalyzing(false);
     }
   };
 
-  const handleCompleteAssessment = () => {
+  const handleCompleteAssessment = async () => {
+    const { analysisText, resumeText: analyzedResumeText, structured } = await analyzeAdditionalInfo();
     const override: { scores?: Record<string, number>; traits?: string[]; recommendations?: string[] } = {};
-    if (aiStructured?.scores && Object.keys(aiStructured.scores).length) override.scores = aiStructured.scores;
-    if (aiStructured?.traits && aiStructured.traits.length) override.traits = aiStructured.traits;
-    if (aiStructured?.recommendations && aiStructured.recommendations.length) override.recommendations = aiStructured.recommendations;
-    const result = completeAssessment(aiAnalysisText || undefined, Object.keys(override).length ? override : undefined);
+    if (structured?.scores && Object.keys(structured.scores).length) override.scores = structured.scores;
+    if (structured?.traits && structured.traits.length) override.traits = structured.traits;
+    if (structured?.recommendations && structured.recommendations.length) override.recommendations = structured.recommendations;
+    const result = completeAssessment(analysisText || undefined, Object.keys(override).length ? override : undefined);
     setCurrentResult(result);
     
     // 更新工作流程数据（包含简历文本与测评详情）
     updateAssessmentData({
       answers,
       resume: additionalData.resume || undefined,
-      resumeText: resumeText || undefined,
+      resumeText: analyzedResumeText || undefined,
       values: additionalData.values,
       personality: additionalData.personality,
       major: additionalData.major,
@@ -1153,7 +1163,7 @@ const Assessment = () => {
           
           <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-8 border border-gray-700">
             <h2 className="text-2xl font-bold text-white mb-6">完善个人信息</h2>
-            <p className="text-gray-300 mb-8">以下信息将帮助我们为您提供更精准的职业建议（可选填写）</p>
+            <p className="text-gray-300 mb-8">补充简历、价值观与性格信息，可帮助我们生成更贴近你的职业建议。</p>
             
             <div className="space-y-6">
 
@@ -1161,7 +1171,7 @@ const Assessment = () => {
                 <label className="block text-sm font-medium text-gray-300 mb-3">
                   上传过往简历 (可选)
                 </label>
-                <div className="border-2 border-dashed border-gray-600 rounded-lg p-6 text-center hover:border-gray-500 transition-colors">
+                <div className="min-h-[18rem] border-2 border-dashed border-gray-600 rounded-lg p-6 text-center hover:border-gray-500 transition-colors">
                   <Upload className="h-8 w-8 text-gray-400 mx-auto mb-3" />
                   <div>
                     <input
@@ -1221,8 +1231,8 @@ const Assessment = () => {
                   )}
                   {resumeText && !resumeExtracting && (
                     <div className="mt-3 text-left">
-                      <p className="text-xs text-gray-400 mb-1">文本预览（前12000字）：</p>
-                      <div className="max-h-40 overflow-auto text-sm bg-gray-900/60 border border-gray-700 rounded-md p-3 text-gray-200 whitespace-pre-wrap">
+                      <p className="text-xs text-gray-400 mb-1">文本预览（最多展示前 1000 字）：</p>
+                      <div className="max-h-56 overflow-auto text-sm bg-gray-900/60 border border-gray-700 rounded-md p-3 text-gray-200 whitespace-pre-wrap">
                         {resumeText.slice(0, 1000)}
                         {resumeText.length > 1000 ? '…' : ''}
                       </div>
@@ -1259,7 +1269,7 @@ const Assessment = () => {
                   onChange={(e) => setAdditionalData(prev => ({ ...prev, values: e.target.value }))}
                   placeholder="请描述您的职业价值观，如工作生活平衡、社会影响力、薪资待遇等..."
                   rows={3}
-                  className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400"
+                  className="min-h-28 max-h-80 w-full resize-y p-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400"
                 />
               </div>
 
@@ -1273,7 +1283,7 @@ const Assessment = () => {
                   onChange={(e) => setAdditionalData(prev => ({ ...prev, personality: e.target.value }))}
                   placeholder="请描述您的性格特点，如内向/外向、细心/大胆、创新/稳重等..."
                   rows={3}
-                  className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400"
+                  className="min-h-28 max-h-80 w-full resize-y p-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400"
                 />
               </div>
 
@@ -1411,18 +1421,11 @@ const Assessment = () => {
 
               <div className="flex gap-3">
                 <button
-                  onClick={analyzeAdditionalInfo}
-                  className="inline-flex items-center px-6 py-3 border-2 border-gray-600 text-gray-300 font-semibold rounded-lg hover:border-gray-500 hover:bg-gray-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={aiAnalyzing || !additionalData.major}
-                >
-                  进行AI分析
-                </button>
-                <button
                   onClick={handleCompleteAssessment}
-                  disabled={!additionalData.major}
+                  disabled={aiAnalyzing || !additionalData.major}
                   className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  完成测评
+                  {aiAnalyzing ? '正在生成分析…' : '完成并生成分析'}
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </button>
               </div>
