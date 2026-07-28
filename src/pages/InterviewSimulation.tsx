@@ -165,6 +165,7 @@ const InterviewSimulation = () => {
   const availablePositions = selectedIndustryLocal ? (industryMap[selectedIndustryLocal] || []) : [];
 
   const buildQuestionContext = () => {
+    const careerProfile = assessmentData.careerProfile;
     const sectionText = jobContext
       .map((section) => {
         const items = section.items.map(item => item.trim()).filter(Boolean);
@@ -178,6 +179,7 @@ const InterviewSimulation = () => {
       selectedJob?.company ? `目标公司：${selectedJob.company}` : '',
       jobDescription.trim() ? `岗位介绍：${jobDescription.trim()}` : '',
       sectionText.length ? `岗位结构：\n${sectionText.join('\n\n')}` : '',
+      careerProfile ? `职业决策：主方向=${careerProfile.primaryDirection.role}\n已有证据=${careerProfile.evidence.map(item => item.claim).join('、')}\n待补齐=${careerProfile.gaps.join('、')}` : '',
       assessmentData?.aiAnalysis ? `候选人画像：${String(assessmentData.aiAnalysis).slice(0, 500)}` : '',
       assessmentData?.traits?.length ? `候选人优势标签：${assessmentData.traits.slice(0, 5).join('、')}` : ''
     ].filter(Boolean);

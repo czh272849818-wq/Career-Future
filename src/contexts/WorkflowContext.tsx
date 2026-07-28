@@ -2,7 +2,35 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { useAuth } from './AuthContext';
 import { apiUrl, authHeaders } from '../api';
 
-interface AssessmentData {
+export type CareerReadiness = 'ready_now' | 'build_evidence' | 'explore';
+
+export interface CareerProfile {
+  generatedAt: string;
+  headline: string;
+  summary: string;
+  primaryDirection: {
+    role: string;
+    industry?: string;
+    readiness: CareerReadiness;
+    rationale: string;
+  };
+  alternatives: Array<{
+    role: string;
+    rationale: string;
+  }>;
+  evidence: Array<{
+    claim: string;
+    source: string;
+  }>;
+  gaps: string[];
+  actionPlan: Array<{
+    title: string;
+    detail: string;
+    destination: 'jobs' | 'resume' | 'interview';
+  }>;
+}
+
+export interface AssessmentData {
   answers: { [questionId: string]: string };
   resume?: File;
   resumeText?: string;
@@ -14,6 +42,9 @@ interface AssessmentData {
   scores?: { [key: string]: number };
   traits?: string[];
   recommendations?: string[];
+  industry?: string;
+  targetPosition?: string;
+  careerProfile?: CareerProfile;
 }
 
 interface JobRecommendation {

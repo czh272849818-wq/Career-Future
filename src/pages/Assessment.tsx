@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { useNavigate } from 'react-router-dom';
 import { 
   Brain, 
@@ -10,19 +8,16 @@ import {
   CheckCircle,
   ArrowRight,
   Lightbulb,
-  BarChart3,
   Users,
   Target,
   Upload,
   FileText,
   Bot,
-  Sparkles,
-  TrendingUp as TrendingUpIcon
+  Sparkles
 } from 'lucide-react';
 import { useAssessment } from '../contexts/AssessmentContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useWorkflow } from '../contexts/WorkflowContext';
-import RadarChart from '../components/ui/RadarChart';
+import { useWorkflow, type CareerProfile, type CareerReadiness } from '../contexts/WorkflowContext';
 import ProgressBar from '../components/ui/ProgressBar';
 import WorkflowProgress from '../components/workflow/WorkflowProgress';
 import BackButton from '../components/ui/BackButton';
@@ -31,23 +26,19 @@ import { apiUrl } from '../api';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf';
 
 type StructuredAnalysis = {
-  scores?: Record<string, number>;
-  traits?: string[];
-  recommendations?: string[];
   headline?: string;
-  subline?: string;
-  strengths?: string[];
-  risks?: string[];
-  fit?: string[];
-  actions?: string[];
-  evidence?: string[];
   summary?: string;
+  primaryDirection?: CareerProfile['primaryDirection'];
+  alternatives?: CareerProfile['alternatives'];
+  evidence?: CareerProfile['evidence'];
+  gaps?: string[];
+  actionPlan?: CareerProfile['actionPlan'];
 };
 
 type AnalysisOutcome = {
   analysisText: string;
   resumeText: string;
-  structured: StructuredAnalysis | null;
+  profile: CareerProfile;
 };
 
 const Assessment = () => {
@@ -69,11 +60,9 @@ const Assessment = () => {
   });
   // AI analysis states
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
-  const [aiAnalysisText, setAiAnalysisText] = useState('');
   const [aiError, setAiError] = useState('');
-  // 结构化分析（JSON）结果：scores/traits/recommendations
-  const [aiStructured, setAiStructured] = useState<StructuredAnalysis | null>(null);
-  const [aiSummaryMode, setAiSummaryMode] = useState<'compact' | 'full'>('compact');
+  const [isEditingDirection, setIsEditingDirection] = useState(false);
+  const [targetRoleDraft, setTargetRoleDraft] = useState('');
   // 新增：题库优化提示
   // 已在顶部声明 showOptimizedNotice，避免重复
   
@@ -104,7 +93,7 @@ const Assessment = () => {
     }
     return resp;
   };
-  const { setCurrentStep, updateAssessmentData } = useWorkflow();
+  const { setCurrentStep, updateAssessmentData, selectJob } = useWorkflow();
   const {
     currentAssessment,
     currentQuestionIndex,
@@ -263,18 +252,92 @@ const Assessment = () => {
   const progress = currentAssessment.length > 0 ? ((currentQuestionIndex + 1) / currentAssessment.length) * 100 : 0;
   const isLastQuestion = currentQuestionIndex === currentAssessment.length - 1;
   const assessmentHistory = getAssessmentHistory();
-  const latestHistory = assessmentHistory[0];
 
-  const getPrimarySummary = () => {
-    const traits = currentResult?.traits || [];
-    const recommendations = currentResult?.recommendations || [];
-    const topTrait = traits[0] || '职业画像已生成';
-    const topRecommendation = recommendations[0] || '继续补充岗位与项目证据';
-    const score = currentResult?.scores ? Object.values(currentResult.scores).reduce((sum, value) => sum + value, 0) / Math.max(1, Object.keys(currentResult.scores).length) : 0;
+  const buildFallbackCareerProfile = (): CareerProfile => {
+    const role = selectedPositionLocal || (selectedIndustryLocal
+      ? `${selectedIndustryLocal}相关岗位`
+      : `${additionalData.major || '当前专业'}相关初阶岗位`);
+    const hasResume = Boolean(resumeText.trim() || additionalData.resume);
+    const evidence = [
+      { claim: '已完成职业偏好与能力倾向测评', source: '测评选择' },
+      additionalData.major ? { claim: `具备${additionalData.major}专业背景`, source: '补充信息' } : null,
+      hasResume ? { claim: '已提供过往经历材料，可用于验证项目证据', source: '简历经历' } : null
+    ].filter((item): item is { claim: string; source: string } => Boolean(item));
+
     return {
-      headline: score >= 75 ? '你的优势已经比较清晰' : '当前更需要补齐证据与方向',
-      subline: `核心标签：${topTrait}`,
-      action: topRecommendation
+      generatedAt: new Date().toISOString(),
+      headline: `先围绕「${role}」验证真实机会`,
+      summary: '这是一份基于当前测评与补充信息生成的起点方案。先确认岗位要求，再用简历和面试反馈持续修正。',
+      primaryDirection: {
+        role,
+        industry: selectedIndustryLocal || undefined,
+        readiness: hasResume ? 'build_evidence' : 'explore',
+        rationale: hasResume ? '已有经历材料，下一步应验证岗位要求并补齐关键证据。' : '当前信息不足以判断可直接投递性，应先验证一个具体岗位方向。'
+      },
+      alternatives: [
+        { role: '相邻业务岗位', rationale: '用于对比职责、门槛和成长路径。' },
+        { role: '项目协同岗位', rationale: '用于验证你的可迁移能力是否更适合跨团队推进。' }
+      ],
+      evidence,
+      gaps: hasResume ? ['把项目经历改写成可验证的结果', '补齐目标岗位高频技能证据'] : ['补充一份简历或项目经历', '选择一个可验证的目标岗位'],
+      actionPlan: [
+        { title: '确认目标岗位', detail: '查看岗位要求，排除不符合的方向。', destination: 'jobs' },
+        { title: '建立投递证据', detail: '围绕目标岗位重写一版简历。', destination: 'resume' },
+        { title: '验证表达能力', detail: '用目标岗位高频题完成一次面试训练。', destination: 'interview' }
+      ]
+    };
+  };
+
+  const parseCareerProfile = (raw: unknown, fallback: CareerProfile): CareerProfile => {
+    if (!raw || typeof raw !== 'object') return fallback;
+    const value = raw as Record<string, unknown>;
+    const text = (input: unknown, max = 100) => typeof input === 'string' ? input.trim().slice(0, max) : '';
+    const list = (input: unknown, max = 3) => Array.isArray(input)
+      ? input.map(item => text(item)).filter(Boolean).slice(0, max)
+      : [];
+    const rawPrimary = value.primaryDirection && typeof value.primaryDirection === 'object'
+      ? value.primaryDirection as Record<string, unknown>
+      : {};
+    const readiness = text(rawPrimary.readiness) as CareerReadiness;
+    const primaryDirection = {
+      role: text(rawPrimary.role, 60) || fallback.primaryDirection.role,
+      industry: text(rawPrimary.industry, 40) || fallback.primaryDirection.industry,
+      readiness: ['ready_now', 'build_evidence', 'explore'].includes(readiness) ? readiness : fallback.primaryDirection.readiness,
+      rationale: text(rawPrimary.rationale, 120) || fallback.primaryDirection.rationale
+    };
+    const alternatives = Array.isArray(value.alternatives)
+      ? value.alternatives.map(item => {
+        const alternative = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+        return { role: text(alternative.role, 60), rationale: text(alternative.rationale, 100) };
+      }).filter(item => item.role && item.rationale).slice(0, 2)
+      : [];
+    const evidence = Array.isArray(value.evidence)
+      ? value.evidence.map(item => {
+        const entry = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+        return { claim: text(entry.claim, 100), source: text(entry.source, 24) };
+      }).filter(item => item.claim && item.source).slice(0, 3)
+      : [];
+    const actionPlan = Array.isArray(value.actionPlan)
+      ? value.actionPlan.map(item => {
+        const action = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+        const destination = text(action.destination) as CareerProfile['actionPlan'][number]['destination'];
+        return {
+          title: text(action.title, 50),
+          detail: text(action.detail, 100),
+          destination: ['jobs', 'resume', 'interview'].includes(destination) ? destination : 'jobs'
+        };
+      }).filter(item => item.title && item.detail).slice(0, 3)
+      : [];
+
+    return {
+      generatedAt: new Date().toISOString(),
+      headline: text(value.headline, 80) || fallback.headline,
+      summary: text(value.summary, 180) || fallback.summary,
+      primaryDirection,
+      alternatives: alternatives.length ? alternatives : fallback.alternatives,
+      evidence: evidence.length ? evidence : fallback.evidence,
+      gaps: list(value.gaps).length ? list(value.gaps) : fallback.gaps,
+      actionPlan: actionPlan.length ? actionPlan : fallback.actionPlan
     };
   };
 
@@ -547,249 +610,102 @@ const Assessment = () => {
     }
   };
 
-  // DeepSeek AI analysis for additional info（融合简历、测评、性格、价值观、专业）
+  // The report is a decision aid, not a psychometric scorecard. One model call builds the full profile.
   const analyzeAdditionalInfo = async (): Promise<AnalysisOutcome> => {
-    let generatedAnalysisText = '';
-    let structuredResult: StructuredAnalysis | null = null;
+    let finalResumeText = resumeText || '';
 
     try {
       setAiAnalyzing(true);
       setAiError('');
-      setAiAnalysisText('');
-      setAiStructured(null);
 
-      // 在分析前确保简历已解析；若未解析则尝试解析
-      let finalResumeText = resumeText || '';
       if (!finalResumeText && additionalData.resume) {
-        try {
-          // 主动触发一次解析（与上传逻辑相同）
-          const file = additionalData.resume;
-          const base64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              const res = reader.result as string;
-              const idx = res.indexOf(',');
-              resolve(idx >= 0 ? res.slice(idx + 1) : res);
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-          });
-          const resp = await postExtractText({ fileName: file.name, mimeType: file.type, dataBase64: base64 });
-          const data = await resp.json();
-          finalResumeText = String(data?.text || '').slice(0, 12000);
-          setResumeText(finalResumeText);
-          setResumeMethod(String(data?.method || ''));
-          // PDF文本过短先尝试客户端文本提取，再OCR
-          if (String(data?.method || '') === 'pdf' && finalResumeText.trim().length < 100) {
-            const clientText = await tryPdfTextClient();
-            if (clientText && clientText.trim().length >= 100) {
-              finalResumeText = clientText.slice(0, 12000);
-            } else {
-              const ocrText = await tryOcrPdfClient();
-              if (ocrText && ocrText.trim().length > 0) {
-                finalResumeText = ocrText.slice(0, 12000);
-              }
-            }
-          }
-        } catch (preParseErr) {
-          console.warn('[Pre-Analyze parse] failed:', preParseErr);
-        }
-      }
-
-      // 生成测评摘要（MBTI + 盖洛普Top3 + 行业/岗位）
-      const traitCounts: Record<string, number> = {};
-      for (const q of currentAssessment) {
-        const ansId = answers[q.id];
-        if (!ansId) continue;
-        const opt = q.options.find(o => o.id === ansId);
-        const trait = opt?.trait;
-        if (!trait) continue;
-        traitCounts[trait] = (traitCounts[trait] || 0) + 1;
-      }
-      const mbtiPairs: [string, string, string][] = [
-        ['E', 'I', '外向/内向'],
-        ['S', 'N', '感觉/直觉'],
-        ['T', 'F', '思考/情感'],
-        ['J', 'P', '判断/知觉']
-      ];
-      const mbtiScores: Record<string, number> = {};
-      let mbtiType = '';
-      for (const [a, b] of mbtiPairs.map(p => [p[0], p[1]])) {
-        const aCount = traitCounts[a] || 0;
-        const bCount = traitCounts[b] || 0;
-        mbtiType += (aCount >= bCount ? a : b);
-        const total = aCount + bCount;
-        mbtiScores[a] = total > 0 ? Math.round((aCount / total) * 100) : 50;
-        mbtiScores[b] = total > 0 ? Math.round((bCount / total) * 100) : 50;
-      }
-      const gallupTraits = ['Achiever','Analytical','Strategic','Learner','Relator','Responsibility','Positivity','Harmony','Individualization'];
-      const gallupScores: Record<string, number> = {};
-      for (const t of gallupTraits) gallupScores[t] = (traitCounts[t] || 0) * 20;
-      const topGallup = gallupTraits
-        .map(t => ({ t, s: gallupScores[t] }))
-        .sort((x,y) => y.s - x.s)
-        .slice(0, 3)
-        .map(x => `${x.t}(${gallupScores[x.t]})`);
-      const summaryLines = [
-        `MBTI：${mbtiType}（E:${mbtiScores.E}% I:${mbtiScores.I}% S:${mbtiScores.S}% N:${mbtiScores.N}% T:${mbtiScores.T}% F:${mbtiScores.F}% J:${mbtiScores.J}% P:${mbtiScores.P}%）`,
-        `盖洛普优势Top3：${topGallup.join('，') || '暂无'}`,
-        `答题总数：${Object.keys(answers).length} / ${currentAssessment.length}`,
-        selectedType === 'industry' ? `意向行业/岗位：${selectedIndustryLocal || '未选'} / ${selectedPositionLocal || '未选'}` : '通用测评'
-      ];
-      const summary = summaryLines.join('\n');
-
-      const resumeTxt = finalResumeText || '未上传简历';
-      const userContent = `请基于以下用户资料进行融合分析，并以层级化中文要点输出：\n\n` +
-        `【测评答案摘要】\n${summary}\n\n` +
-        `【简历文本】\n${resumeTxt}\n\n` +
-        `【价值观】\n${additionalData.values || '未填写'}\n\n` +
-        `【性格】\n${additionalData.personality || '未填写'}\n\n` +
-        `【专业】\n${additionalData.major || '未填写'}\n\n` +
-        `【要求】请只输出适合展示在产品里的结构化结果，避免长篇分析。` +
-        `必须按以下 JSON 结构输出：` +
-        `{"headline":"一句话总判断","subline":"一句话核心定位","strengths":["优点1","优点2","优点3"],` +
-        `"risks":["风险1","风险2"],"fit":["匹配点1","匹配点2"],"actions":["行动1","行动2","行动3"],"evidence":["证据1","证据2"],"summary":"80字以内结论"}` +
-        `\n要求：` +
-        `1) strengths/risks/fit/actions/evidence 每项最多 3 条，单条不超过 18 个中文字符；` +
-        `2) summary 不要超过 80 字；` +
-        `3) 不要输出 Markdown，不要输出解释性段落，不要输出多余标题。`;
-
-      const messages = [
-        { role: 'system', content: '你是资深中文职业分析顾问。你的任务是输出短、清晰、结构化的职业分析结果，避免冗长说明。只输出 JSON。' },
-        { role: 'user', content: userContent }
-      ];
-
-      // 优先使用流式输出
-      try {
-        const resp = await fetch(apiUrl('/api/deepseek/chat'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages, model: DEFAULT_LLM_MODEL, temperature: DEFAULT_TEMPERATURE, stream: true })
+        const file = additionalData.resume;
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
         });
-        if (!resp.ok || !resp.body) throw new Error('streaming not available');
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
-          for (const line of lines) {
-            if (!line.startsWith('data:')) continue;
-            const payload = line.slice(5).trim();
-            if (payload === '[DONE]') continue;
-            try {
-              const evt = JSON.parse(payload);
-              const delta = evt?.choices?.[0]?.delta?.content || '';
-              if (delta) {
-                generatedAnalysisText += delta;
-                setAiAnalysisText(generatedAnalysisText);
-              }
-            } catch {}
-          }
-        }
-      } catch (streamErr) {
-        // 回退到非流式
-        try {
-          const resp2 = await fetch(apiUrl('/api/deepseek/chat'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages, model: DEFAULT_LLM_MODEL, temperature: DEFAULT_TEMPERATURE, stream: false })
-          });
-          const data = await resp2.json();
-          generatedAnalysisText = data?.choices?.[0]?.message?.content || '';
-          setAiAnalysisText(generatedAnalysisText);
-        } catch (e2) {
-          setAiError('AI分析失败，请稍后重试');
-        }
+        const response = await postExtractText({ fileName: file.name, mimeType: file.type, dataBase64: base64 });
+        const data = await response.json();
+        finalResumeText = String(data?.text || '').slice(0, 12000);
+        setResumeText(finalResumeText);
+        setResumeMethod(String(data?.method || ''));
       }
 
-      // 追加一次非流式结构化 JSON 获取：用于覆盖分数/标签/建议
-      try {
-        const jsonUser = `请将以上资料转换为一个严格合法的 JSON 对象，仅输出 JSON（不要任何解释或 Markdown）。` +
-          `\nJSON schema: {"scores": {"<维度>": 0-100整数}, "traits": ["标签1", "标签2", ...], "recommendations": ["建议1", "建议2", ...]}.` +
-          `\n要求：\n- 根据测评与简历，从 MBTI 四维(E/I, S/N, T/F, J/P)、以及盖洛普优势(如 Achiever/Analytical/Strategic 等)等角度给出得分，范围 0-100，取整。` +
-          `\n- traits 为 3-6 个简明标签，包含 MBTI 类型(如 "MBTI：ESTJ")与前述优势词；` +
-          `\n- recommendations 输出 4-6 条中文建议句子，面向岗位发展与技能提升，避免过长。` +
-          `\n- 如果行业测评已选择，则结合意向行业/岗位：${selectedIndustryLocal || '未选'} / ${selectedPositionLocal || '未选'}。`;
+      const fallback = buildFallbackCareerProfile();
+      const answerSummary = currentAssessment.map(question => {
+        const option = question.options.find(item => item.id === answers[question.id]);
+        return option ? `${question.question}：${option.text}` : '';
+      }).filter(Boolean).join('\n');
+      const userContent = [
+        `【测评选择】\n${answerSummary || '未完成'}`,
+        `【简历文本】\n${finalResumeText || '未上传'}`,
+        `【价值观】\n${additionalData.values || '未填写'}`,
+        `【性格补充】\n${additionalData.personality || '未填写'}`,
+        `【专业】\n${additionalData.major || '未填写'}`,
+        `【已选行业/岗位】\n${selectedIndustryLocal || '未选'} / ${selectedPositionLocal || '未选'}`,
+        '只输出一个合法 JSON 对象：' + JSON.stringify({
+          headline: '一句话职业判断',
+          summary: '不超过 120 字的判断边界',
+          primaryDirection: { role: '具体岗位方向', industry: '行业或空字符串', readiness: 'ready_now | build_evidence | explore', rationale: '判断依据' },
+          alternatives: [{ role: '备选方向', rationale: '与主方向的区别' }],
+          evidence: [{ claim: '可验证的事实', source: '测评选择 | 简历经历 | 补充信息' }],
+          gaps: ['需要补齐的证据或技能'],
+          actionPlan: [{ title: '7 天内可完成的任务', detail: '明确产出物', destination: 'jobs | resume | interview' }]
+        }),
+        '约束：主方向只能是岗位假设，不得声称保证录用；证据必须来自上述资料；备选方向最多 2 个，证据、差距、任务各最多 3 条；不要输出分数、人格类型、标签或 Markdown。'
+      ].join('\n\n');
 
-        const messagesJson = [
-          { role: 'system', content: '你是资深中文职业分析顾问，请严格按要求只输出一个合法的 JSON 对象。' },
-          { role: 'user', content: `${userContent}\n\n${jsonUser}` }
-        ];
+      const response = await fetch(apiUrl('/api/deepseek/chat'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: '你是职业决策助手。只依据用户资料输出短小、可执行的职业假设，严格输出 JSON。' },
+            { role: 'user', content: userContent }
+          ],
+          model: DEFAULT_LLM_MODEL,
+          temperature: Math.min(0.3, DEFAULT_TEMPERATURE),
+          stream: false
+        })
+      });
+      if (!response.ok) throw new Error('career profile request failed');
 
-        const respJson = await fetch(apiUrl('/api/deepseek/chat'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: messagesJson, model: DEFAULT_LLM_MODEL, temperature: 0.2, stream: false })
-        });
-        const dataJson = await respJson.json();
-        let content = dataJson?.choices?.[0]?.message?.content || '';
-        // 尝试安全解析：截取第一个 { 到最后一个 }
-        const firstIdx = content.indexOf('{');
-        const lastIdx = content.lastIndexOf('}');
-        if (firstIdx >= 0 && lastIdx > firstIdx) {
-          content = content.slice(firstIdx, lastIdx + 1);
-        }
-        try {
-          const parsed = JSON.parse(content);
-          const normalized: StructuredAnalysis = {};
-          if (parsed && typeof parsed === 'object') {
-            if (parsed.scores && typeof parsed.scores === 'object') {
-              const sc: Record<string, number> = {};
-              for (const k of Object.keys(parsed.scores)) {
-                const v = Number(parsed.scores[k]);
-                if (!Number.isNaN(v)) sc[k] = Math.max(0, Math.min(100, Math.round(v)));
-              }
-              if (Object.keys(sc).length) normalized.scores = sc;
-            }
-            if (Array.isArray(parsed.traits)) {
-              const ts = parsed.traits.map((x: any) => String(x)).filter(Boolean);
-              if (ts.length) normalized.traits = ts;
-            }
-            if (Array.isArray(parsed.recommendations)) {
-              const rs = parsed.recommendations.map((x: any) => String(x)).filter(Boolean);
-              if (rs.length) normalized.recommendations = rs;
-            }
-            if (typeof parsed.headline === 'string') normalized.headline = parsed.headline.trim();
-            if (typeof parsed.subline === 'string') normalized.subline = parsed.subline.trim();
-            if (Array.isArray(parsed.strengths)) normalized.strengths = parsed.strengths.map((x: any) => String(x)).filter(Boolean).slice(0, 3);
-            if (Array.isArray(parsed.risks)) normalized.risks = parsed.risks.map((x: any) => String(x)).filter(Boolean).slice(0, 3);
-            if (Array.isArray(parsed.fit)) normalized.fit = parsed.fit.map((x: any) => String(x)).filter(Boolean).slice(0, 3);
-            if (Array.isArray(parsed.actions)) normalized.actions = parsed.actions.map((x: any) => String(x)).filter(Boolean).slice(0, 3);
-            if (Array.isArray(parsed.evidence)) normalized.evidence = parsed.evidence.map((x: any) => String(x)).filter(Boolean).slice(0, 3);
-            if (typeof parsed.summary === 'string') normalized.summary = parsed.summary.trim();
-          }
-          if (normalized.scores || normalized.traits || normalized.recommendations || normalized.summary) {
-            structuredResult = normalized;
-            setAiStructured(normalized);
-          }
-        } catch (jsonErr) {
-          // 忽略结构化失败，不影响文本分析展示
-          console.warn('[AI Structured] parse failed:', jsonErr);
-        }
-      } catch (fetchJsonErr) {
-        console.warn('[AI Structured] fetch failed:', fetchJsonErr);
-      }
+      const data = await response.json();
+      const content = String(data?.choices?.[0]?.message?.content || '');
+      const first = content.indexOf('{');
+      const last = content.lastIndexOf('}');
+      const parsed: StructuredAnalysis = JSON.parse(first >= 0 && last > first ? content.slice(first, last + 1) : content);
+      const profile = parseCareerProfile(parsed, fallback);
+      const analysisText = [
+        profile.headline,
+        `主方向：${profile.primaryDirection.role}`,
+        `依据：${profile.primaryDirection.rationale}`,
+        `差距：${profile.gaps.join('；')}`
+      ].join('\n');
 
-      return { analysisText: generatedAnalysisText, resumeText: finalResumeText, structured: structuredResult };
-    } catch (err) {
-      console.error('[AI Analyze] error:', err);
-      setAiError('分析过程出现错误');
-      return { analysisText: '', resumeText: resumeText || '', structured: null };
+      return { analysisText, resumeText: finalResumeText, profile };
+    } catch (error) {
+      console.warn('[Career profile] using local fallback:', error);
+      const profile = {
+        ...buildFallbackCareerProfile(),
+        summary: 'AI 分析暂时不可用。这是一份基于当前测评与补充信息生成的基础行动方案，需在真实岗位要求中继续验证。'
+      };
+      setAiError('AI 分析暂时不可用，已生成基础行动方案。');
+      return { analysisText: `${profile.headline}\n${profile.summary}`, resumeText: finalResumeText, profile };
     } finally {
       setAiAnalyzing(false);
     }
   };
 
   const handleCompleteAssessment = async () => {
-    const { analysisText, resumeText: analyzedResumeText, structured } = await analyzeAdditionalInfo();
-    const override: { scores?: Record<string, number>; traits?: string[]; recommendations?: string[] } = {};
-    if (structured?.scores && Object.keys(structured.scores).length) override.scores = structured.scores;
-    if (structured?.traits && structured.traits.length) override.traits = structured.traits;
-    if (structured?.recommendations && structured.recommendations.length) override.recommendations = structured.recommendations;
-    const result = completeAssessment(analysisText || undefined, Object.keys(override).length ? override : undefined);
-    setCurrentResult(result);
+    const { analysisText, resumeText: analyzedResumeText, profile } = await analyzeAdditionalInfo();
+    const result = completeAssessment(analysisText || undefined);
+    const resultWithProfile = { ...result, careerProfile: profile };
+    setCurrentResult(resultWithProfile);
+    setTargetRoleDraft(profile.primaryDirection.role);
+    setIsEditingDirection(false);
     
     // 更新工作流程数据（包含简历文本与测评详情）
     updateAssessmentData({
@@ -803,15 +719,45 @@ const Assessment = () => {
       aiAnalysis: result.aiAnalysis,
       scores: result.scores,
       traits: result.traits,
-      recommendations: result.recommendations
+      recommendations: result.recommendations,
+      industry: profile.primaryDirection.industry,
+      targetPosition: profile.primaryDirection.role,
+      careerProfile: profile
     });
      
      setShowResult(true);
    };
 
   const handleGoToJobRecommendations = () => {
+    const profile = currentResult?.careerProfile as CareerProfile | undefined;
+    if (profile) {
+      selectJob({
+        id: 'career-profile-primary',
+        title: profile.primaryDirection.role,
+        company: '目标岗位方向（非真实职位）',
+        matchScore: 0,
+        description: profile.primaryDirection.rationale,
+        requirements: profile.gaps,
+        salary: '以真实职位要求为准',
+        location: '待选择',
+        industry: profile.primaryDirection.industry
+      });
+    }
     setCurrentStep(2);
     navigate('/jobs');
+  };
+
+  const handleSaveDirection = () => {
+    const profile = currentResult?.careerProfile as CareerProfile | undefined;
+    const role = targetRoleDraft.trim();
+    if (!profile || !role) return;
+    const nextProfile = {
+      ...profile,
+      primaryDirection: { ...profile.primaryDirection, role }
+    };
+    setCurrentResult({ ...currentResult, careerProfile: nextProfile });
+    updateAssessmentData({ careerProfile: nextProfile, targetPosition: role });
+    setIsEditingDirection(false);
   };
 
   const handlePrevious = () => {
@@ -965,191 +911,119 @@ const Assessment = () => {
   }
 
   if (showResult && currentResult) {
-    const summary = getPrimarySummary();
-    const scoreEntries = Object.entries(currentResult.scores);
-    const topScores = scoreEntries.slice(0, 4);
-    const recentComparison = latestHistory && latestHistory.id !== currentResult.id
-      ? latestHistory
-      : assessmentHistory[1];
-    const resultDelta = recentComparison
-      ? Math.round((Object.values(currentResult.scores).reduce((sum, value) => sum + value, 0) / Math.max(1, Object.keys(currentResult.scores).length)) - (Object.values(recentComparison.scores).reduce((sum, value) => sum + value, 0) / Math.max(1, Object.keys(recentComparison.scores).length)))
-      : null;
+    const profile = (currentResult.careerProfile as CareerProfile | undefined) || buildFallbackCareerProfile();
+    const readinessLabel: Record<CareerReadiness, string> = {
+      ready_now: '可开始验证',
+      build_evidence: '先补齐证据',
+      explore: '需要先探索'
+    };
 
     return (
       <div className="min-h-screen bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto">
           <WorkflowProgress />
-          
-          <div className="space-y-8">
-            <section className="overflow-hidden rounded-3xl border border-gray-700 bg-gray-800/60 shadow-2xl">
-              <div className="grid gap-0 lg:grid-cols-[1.1fr_0.9fr]">
-                <div className="relative p-8">
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.12),transparent_34%)]" />
-                  <div className="relative">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs text-emerald-200">
-                      <Sparkles className="h-3.5 w-3.5" />
-                      分析报告
-                    </div>
-                    <h1 className="mt-4 text-3xl font-bold text-white">你的职业画像已经生成</h1>
-                    <p className="mt-3 text-lg text-gray-300">{summary.headline}</p>
-                    <div className="mt-6 rounded-2xl border border-gray-700 bg-gray-900/70 p-5">
-                      <p className="text-sm text-gray-400">核心判断</p>
-                      <p className="mt-2 text-2xl font-semibold text-white">{summary.subline}</p>
-                      <p className="mt-3 text-gray-300">{summary.action}</p>
-                    </div>
-                    {resultDelta !== null && (
-                      <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-gray-700 bg-gray-900/70 px-3 py-1 text-sm text-gray-300">
-                        <TrendingUpIcon className="h-4 w-4 text-emerald-300" />
-                        相比上次平均分变化 {resultDelta >= 0 ? '+' : ''}{resultDelta}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="border-t border-gray-700 bg-gray-950/40 p-8 lg:border-l lg:border-t-0">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-gray-400">总分</p>
-                      <p className="mt-1 text-5xl font-bold text-white">{Math.round(Object.values(currentResult.scores).reduce((sum, value) => sum + value, 0) / Math.max(1, Object.keys(currentResult.scores).length))}</p>
-                    </div>
-                    <CheckCircle className="h-12 w-12 text-emerald-400" />
-                  </div>
-                  <div className="mt-6 grid grid-cols-2 gap-3">
-                    {topScores.map(([name, score]) => (
-                      <div key={name} className="rounded-2xl border border-gray-700 bg-gray-900/70 p-4">
-                        <p className="text-xs text-gray-400">{name}</p>
-                        <p className="mt-1 text-2xl font-bold text-white">{score}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-6 flex flex-wrap gap-2">
-                    {currentResult.traits.slice(0, 4).map((trait: string) => (
-                      <span key={trait} className="rounded-full bg-blue-500/15 px-3 py-1 text-sm text-blue-200">
-                        {trait}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+          <section className="border border-gray-700 bg-gray-800/50 shadow-xl">
+            <header className="border-b border-gray-700 px-6 py-7 sm:px-8">
+              <div className="flex items-center gap-2 text-sm text-emerald-300">
+                <Sparkles className="h-4 w-4" />
+                职业决策报告
               </div>
-            </section>
+              <h1 className="mt-3 text-2xl font-bold text-white sm:text-3xl">{profile.headline}</h1>
+              <p className="mt-3 max-w-3xl leading-7 text-gray-300">{profile.summary}</p>
+            </header>
 
-            <section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-              <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-xl font-semibold text-white">能力证据</h2>
-                  <BarChart3 className="h-5 w-5 text-blue-300" />
-                </div>
-                <div className="rounded-xl bg-gray-700/50 p-5">
-                  <RadarChart data={currentResult.scores} />
-                </div>
-              </div>
+            <div className="grid lg:grid-cols-[1.15fr_0.85fr]">
+              <section className="px-6 py-7 sm:px-8">
+                <p className="text-sm text-gray-400">主目标岗位</p>
+                {isEditingDirection ? (
+                  <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                    <input
+                      value={targetRoleDraft}
+                      onChange={(event) => setTargetRoleDraft(event.target.value)}
+                      aria-label="主目标岗位"
+                      className="min-w-0 flex-1 border border-gray-600 bg-gray-900 px-3 py-2 text-lg font-semibold text-white outline-none focus:border-blue-400"
+                    />
+                    <div className="flex gap-2">
+                      <button onClick={handleSaveDirection} className="border border-emerald-400/50 px-3 py-2 text-sm text-emerald-200 hover:bg-emerald-400/10">确认</button>
+                      <button onClick={() => setIsEditingDirection(false)} className="border border-gray-600 px-3 py-2 text-sm text-gray-300 hover:bg-gray-700">取消</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <h2 className="text-2xl font-semibold text-white">{profile.primaryDirection.role}</h2>
+                    <span className="border border-amber-300/30 bg-amber-300/10 px-2 py-1 text-xs text-amber-100">{readinessLabel[profile.primaryDirection.readiness]}</span>
+                    <button onClick={() => setIsEditingDirection(true)} className="text-sm text-blue-300 hover:text-blue-200">修改</button>
+                  </div>
+                )}
+                <p className="mt-4 max-w-xl leading-7 text-gray-300">{profile.primaryDirection.rationale}</p>
+                <p className="mt-5 text-xs leading-5 text-gray-500">这是待验证的岗位方向，不是岗位录用结论或真实职位。</p>
+              </section>
 
-              <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6">
-                <h2 className="text-xl font-semibold text-white mb-4">三条行动</h2>
-                <div className="space-y-3">
-                  {currentResult.recommendations.slice(0, 3).map((rec: string, index: number) => (
-                    <div key={index} className="flex items-start gap-3 rounded-xl border border-gray-700 bg-gray-900/60 p-4">
-                      <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-300 text-sm font-semibold">
-                        {index + 1}
-                      </div>
-                      <p className="text-gray-300">{rec}</p>
+              <section className="border-t border-gray-700 px-6 py-7 lg:border-l lg:border-t-0 sm:px-8">
+                <h2 className="text-lg font-semibold text-white">备选方向</h2>
+                <div className="mt-4 space-y-4">
+                  {profile.alternatives.map((alternative) => (
+                    <div key={alternative.role} className="border-l-2 border-gray-600 pl-4">
+                      <p className="font-medium text-white">{alternative.role}</p>
+                      <p className="mt-1 text-sm leading-6 text-gray-400">{alternative.rationale}</p>
                     </div>
                   ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="grid gap-6 lg:grid-cols-2">
-              <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6">
-                <h2 className="text-xl font-semibold text-white mb-4">职业身份标签</h2>
-                <div className="flex flex-wrap gap-3">
-                  {currentResult.traits.map((trait: string, index: number) => (
-                    <span key={index} className="rounded-full bg-gradient-to-r from-blue-500 to-purple-500 px-4 py-2 text-sm font-medium text-white">
-                      {trait}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6">
-                <h2 className="text-xl font-semibold text-white mb-4">结论摘要</h2>
-                <div className="space-y-3 text-gray-300">
-                  {currentResult.aiAnalysis ? (
-                    <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-invert max-w-none prose-p:my-2 prose-li:my-1">
-                        {currentResult.aiAnalysis}
-                      </ReactMarkdown>
-                    </div>
-                  ) : (
-                    <p>AI 摘要尚未生成，但你已经有了可执行的测评结论。</p>
-                  )}
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-white">下一步动作</h2>
-                <Target className="h-5 w-5 text-emerald-300" />
-              </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <button
-                  onClick={handleGoToJobRecommendations}
-                  className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-500 to-blue-500 px-6 py-3 font-semibold text-gray-950 transition hover:from-emerald-400 hover:to-blue-400"
-                >
-                  查看岗位推荐
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </button>
-                <button
-                  onClick={() => setShowAdditionalInfo(true)}
-                  className="inline-flex items-center justify-center rounded-xl border border-gray-600 px-6 py-3 font-semibold text-gray-200 transition hover:border-gray-400 hover:bg-gray-700"
-                >
-                  优化简历与画像
-                </button>
-                <button
-                  onClick={handleRestartAssessment}
-                  className="inline-flex items-center justify-center rounded-xl border border-gray-600 px-6 py-3 font-semibold text-gray-200 transition hover:border-gray-400 hover:bg-gray-700"
-                >
-                  重新测评
-                </button>
-              </div>
-            </section>
-
-            {isAuthenticated && assessmentHistory.length > 1 && (
-              <section className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-xl font-semibold text-white">趋势对比</h2>
-                  <TrendingUpIcon className="h-5 w-5 text-blue-300" />
-                </div>
-                <div className="space-y-3">
-                  {assessmentHistory.slice(0, 3).map((result, index) => {
-                    const avg = Math.round(Object.values(result.scores).reduce((sum, value) => sum + value, 0) / Math.max(1, Object.keys(result.scores).length));
-                    return (
-                      <div key={result.id} className="rounded-xl border border-gray-700 bg-gray-900/60 p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-white">测评 #{assessmentHistory.length - index}</p>
-                            <p className="text-sm text-gray-400">{result.completedAt.toLocaleString()}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm text-gray-400">平均分</p>
-                            <p className="text-lg font-semibold text-white">{avg}</p>
-                          </div>
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {result.traits.slice(0, 4).map((trait) => (
-                            <span key={trait} className="rounded-full bg-blue-500/15 px-3 py-1 text-xs text-blue-200">
-                              {trait}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
               </section>
-            )}
-          </div>
+            </div>
+
+            <div className="grid border-t border-gray-700 lg:grid-cols-2">
+              <section className="px-6 py-7 sm:px-8">
+                <h2 className="text-lg font-semibold text-white">已有证据</h2>
+                <ul className="mt-4 space-y-4">
+                  {profile.evidence.map((item) => (
+                    <li key={`${item.source}-${item.claim}`} className="flex gap-3 text-sm leading-6 text-gray-300">
+                      <CheckCircle className="mt-1 h-4 w-4 shrink-0 text-emerald-300" />
+                      <span>{item.claim}<span className="ml-2 text-xs text-gray-500">来自{item.source}</span></span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section className="border-t border-gray-700 px-6 py-7 lg:border-l lg:border-t-0 sm:px-8">
+                <h2 className="text-lg font-semibold text-white">优先补齐</h2>
+                <ol className="mt-4 space-y-4">
+                  {profile.gaps.map((gap, index) => (
+                    <li key={gap} className="flex gap-3 text-sm leading-6 text-gray-300">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center border border-gray-600 text-xs text-gray-300">{index + 1}</span>
+                      <span>{gap}</span>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            </div>
+
+            <section className="border-t border-gray-700 px-6 py-7 sm:px-8">
+              <h2 className="text-lg font-semibold text-white">未来 7 天</h2>
+              <ol className="mt-4 divide-y divide-gray-700 border-y border-gray-700">
+                {profile.actionPlan.map((action, index) => (
+                  <li key={action.title} className="grid gap-2 py-4 sm:grid-cols-[2rem_10rem_1fr] sm:gap-4">
+                    <span className="text-sm text-gray-500">{index + 1}</span>
+                    <span className="font-medium text-white">{action.title}</span>
+                    <span className="text-sm leading-6 text-gray-400">{action.detail}</span>
+                  </li>
+                ))}
+              </ol>
+              <button
+                onClick={handleGoToJobRecommendations}
+                className="mt-6 inline-flex items-center justify-center bg-emerald-400 px-5 py-3 font-semibold text-gray-950 transition hover:bg-emerald-300"
+              >
+                确认目标岗位，查看岗位要求
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </button>
+            </section>
+
+            <details className="border-t border-gray-700 px-6 py-5 sm:px-8">
+              <summary className="cursor-pointer text-sm text-gray-400">查看分析依据</summary>
+              <p className="mt-3 max-w-3xl whitespace-pre-line text-sm leading-6 text-gray-400">{currentResult.aiAnalysis || profile.summary}</p>
+            </details>
+          </section>
+          <button onClick={handleRestartAssessment} className="mt-5 text-sm text-gray-500 hover:text-gray-300">重新测评</button>
         </div>
       </div>
     );
@@ -1303,109 +1177,9 @@ const Assessment = () => {
               </div>
 
 
-              {(aiAnalyzing || aiAnalysisText || aiError) && (
-                <div className="bg-gray-800 border border-gray-700 rounded-2xl p-4 text-white">
-                  <div className="flex items-center mb-2">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 flex items-center justify-center mr-2">
-                      <Bot className="h-4 w-4 text-white" />
-                    </div>
-                    <span className="text-white font-medium">AI 分析</span>
-                  </div>
-                  {aiAnalyzing && (
-                    <p className="text-sm text-gray-400">正在分析您的资料，请稍候...</p>
-                  )}
-                  {aiError && (
-                    <p className="text-sm text-red-400">{aiError}</p>
-                  )}
-                  {aiAnalysisText && (
-                      <div className="space-y-3 text-sm text-white">
-                        {aiAnalysisText ? (
-                          <>
-                            {aiSummaryMode === 'full' ? (
-                              <ReactMarkdown
-                                className="max-w-none text-sm text-white"
-                                remarkPlugins={[remarkGfm]}
-                              >
-                                {aiAnalysisText}
-                              </ReactMarkdown>
-                            ) : (
-                              <div className="space-y-3">
-                                <div className="grid gap-3 md:grid-cols-2">
-                                  <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4">
-                                    <p className="text-xs text-gray-400">总判断</p>
-                                    <p className="mt-1 font-semibold text-white">{aiStructured?.summary || aiAnalysisText.slice(0, 80) || '待生成'}</p>
-                                  </div>
-                                  <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4">
-                                    <p className="text-xs text-gray-400">定位</p>
-                                    <p className="mt-1 font-semibold text-white">{aiStructured?.subline || '待生成'}</p>
-                                  </div>
-                                </div>
-
-                                <div className="grid gap-3 md:grid-cols-2">
-                                  <div className="rounded-xl border border-emerald-700/40 bg-emerald-900/20 p-4">
-                                    <p className="text-xs font-semibold text-emerald-200">优势</p>
-                                    <ul className="mt-2 space-y-1 text-emerald-50">
-                                      {(aiStructured?.strengths || []).slice(0, 3).map((item: string) => <li key={item}>• {item}</li>)}
-                                    </ul>
-                                  </div>
-                                  <div className="rounded-xl border border-yellow-700/40 bg-yellow-900/20 p-4">
-                                    <p className="text-xs font-semibold text-yellow-200">风险</p>
-                                    <ul className="mt-2 space-y-1 text-yellow-50">
-                                      {(aiStructured?.risks || []).slice(0, 3).map((item: string) => <li key={item}>• {item}</li>)}
-                                    </ul>
-                                  </div>
-                                </div>
-
-                                <div className="grid gap-3 md:grid-cols-2">
-                                  <div className="rounded-xl border border-blue-700/40 bg-blue-900/20 p-4">
-                                    <p className="text-xs font-semibold text-blue-200">匹配证据</p>
-                                    <ul className="mt-2 space-y-1 text-blue-50">
-                                      {(aiStructured?.fit || []).slice(0, 3).map((item: string) => <li key={item}>• {item}</li>)}
-                                    </ul>
-                                  </div>
-                                  <div className="rounded-xl border border-purple-700/40 bg-purple-900/20 p-4">
-                                    <p className="text-xs font-semibold text-purple-200">下一步</p>
-                                    <ul className="mt-2 space-y-1 text-purple-50">
-                                      {(aiStructured?.actions || []).slice(0, 3).map((item: string) => <li key={item}>• {item}</li>)}
-                                    </ul>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-700 bg-gray-900/60 p-4">
-                                  <div>
-                                    <p className="text-xs text-gray-400">展开原文</p>
-                                    <p className="text-xs text-gray-500">仅在需要查看完整分析时展开</p>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => setAiSummaryMode(prev => prev === 'compact' ? 'full' : 'compact')}
-                                    className="rounded-lg border border-gray-600 px-3 py-2 text-xs text-gray-200 transition hover:bg-gray-700"
-                                  >
-                                    {aiSummaryMode === 'compact' ? '查看完整分析' : '收起'}
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </>
-                        ) : null}
-                      </div>
-                  )}
-                  {aiStructured && (
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-3 text-xs text-gray-300">
-                        <p className="text-gray-500">维度</p>
-                        <p className="mt-1 text-lg font-semibold text-white">{Object.keys(aiStructured.scores || {}).length}</p>
-                      </div>
-                      <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-3 text-xs text-gray-300">
-                        <p className="text-gray-500">标签</p>
-                        <p className="mt-1 text-lg font-semibold text-white">{(aiStructured.traits || []).length}</p>
-                      </div>
-                      <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-3 text-xs text-gray-300">
-                        <p className="text-gray-500">建议</p>
-                        <p className="mt-1 text-lg font-semibold text-white">{(aiStructured.recommendations || []).length}</p>
-                      </div>
-                    </div>
-                  )}
+              {(aiAnalyzing || aiError) && (
+                <div className="border border-gray-700 bg-gray-900/60 p-4 text-sm text-gray-300">
+                  {aiAnalyzing ? '正在生成职业决策报告…' : aiError}
                 </div>
               )}
             </div>

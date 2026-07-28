@@ -22,10 +22,11 @@ import { apiUrl } from '../api';
 const JobMatching = () => {
   const navigate = useNavigate();
   const { assessmentData, recommendedJobs, setRecommendedJobs, selectJob, setCurrentStep, updateAssessmentData } = useWorkflow();
+  const careerProfile = assessmentData.careerProfile;
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
   const [filterCity, setFilterCity] = useState('');
-  const [filterIndustry, setFilterIndustry] = useState('');
-  const [filterPosition, setFilterPosition] = useState('');
+  const [filterIndustry, setFilterIndustry] = useState(careerProfile?.primaryDirection.industry || assessmentData.industry || '');
+  const [filterPosition, setFilterPosition] = useState(careerProfile?.primaryDirection.role || assessmentData.targetPosition || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [industries, setIndustries] = useState<string[]>([]);
@@ -35,9 +36,12 @@ const JobMatching = () => {
   const buildLocalRecommendations = () => {
     const major = assessmentData.major || '你的专业背景';
     const targetIndustry = filterIndustry || assessmentData.industry || '目标行业';
-    const traitText = assessmentData.traits?.slice(0, 2).join('、') || '可迁移能力';
-    const baseTitles = positions.length > 0
-      ? positions.slice(0, 4)
+    const targetRole = filterPosition || careerProfile?.primaryDirection.role;
+    const traitText = careerProfile?.evidence.map(item => item.claim).slice(0, 2).join('、') || '可迁移能力';
+    const baseTitles = targetRole
+      ? [targetRole, ...positions.filter(position => position !== targetRole).slice(0, 3)]
+      : positions.length > 0
+        ? positions.slice(0, 4)
       : ['业务分析专员', '产品运营专员', '项目执行专员', '客户成功顾问'];
 
     return baseTitles.map((title, index) => ({
@@ -132,6 +136,12 @@ const JobMatching = () => {
       const aiAnalysis = assessmentData.aiAnalysis || '';
       const scores = assessmentData.scores || {};
       const traits = assessmentData.traits || [];
+      const preferredRole = opts?.positionHints?.[0] || filterPosition || careerProfile?.primaryDirection.role || '';
+      const profileContext = careerProfile ? JSON.stringify({
+        primaryDirection: careerProfile.primaryDirection,
+        evidence: careerProfile.evidence,
+        gaps: careerProfile.gaps
+      }) : '（未生成职业决策画像）';
 
       const trimmedResume = resumeText ? resumeText.slice(0, 1200) : '';
       const trimmedAnalysis = aiAnalysis ? aiAnalysis.slice(0, 1200) : '';
@@ -146,9 +156,11 @@ const JobMatching = () => {
         `【测评分数】${JSON.stringify(scores)}\n` +
         `【优势特质】${traits.join('、') || '（未提取）'}\n` +
         `【AI分析摘要】${trimmedAnalysis || '（无）'}\n` +
+        `【职业决策画像】${profileContext}\n` +
+        `【优先验证岗位】${preferredRole || '（未指定）'}\n` +
         `【指定行业】${opts?.industry || filterIndustry || '（未指定）'}\n` +
         `【岗位词典提示】${(opts?.positionHints?.slice(0, 15) || positions.slice(0, 15)).join('、') || '（未指定）'}\n\n` +
-        `请生成10个岗位推荐（贴合中国职场），并返回JSON数组。每项需包含匹配度、城市、行业、技能要求与简要描述，匹配理由要体现简历与测评的关联。优先从“岗位词典提示”中选择或衍生相近岗位，若不适用再综合其他信息。`
+        `请生成最多6个岗位方向（贴合中国职场），并返回JSON数组。优先把“优先验证岗位”放在第一项；匹配理由必须区分已有证据与待验证差距，不能暗示真实招聘职位或保证录用。`
       );
 
       const messages = [
@@ -169,7 +181,7 @@ const JobMatching = () => {
       let parsed: any[] = [];
       try { parsed = JSON.parse(content); } catch { parsed = []; }
 
-      const jobs = parsed.slice(0, 10).map((item: any, idx: number) => ({
+      const jobs = parsed.slice(0, 6).map((item: any, idx: number) => ({
         id: String(idx + 1),
         title: item.title || item.岗位名称 || '未命名岗位',
         company: item.company || item.公司 || '优选公司（示例）',
@@ -183,11 +195,11 @@ const JobMatching = () => {
 
       if (jobs.length === 0) throw new Error('AI未返回有效岗位推荐');
       setRecommendedJobs(jobs);
-      setCurrentStep(3);
+      setCurrentStep(2);
     } catch (e: any) {
       const fallbackJobs = buildLocalRecommendations();
       setRecommendedJobs(fallbackJobs);
-      setCurrentStep(3);
+      setCurrentStep(2);
       setError(`${e.message || '生成岗位推荐失败'}，已切换为本地职业方向建议。`);
     } finally {
       setLoading(false);
@@ -195,8 +207,10 @@ const JobMatching = () => {
   };
 
   useEffect(() => {
-    // 初次进入页面生成岗位推荐
-    fetchRecommendations();
+    void fetchRecommendations({
+      industry: filterIndustry || undefined,
+      positionHints: filterPosition ? [filterPosition] : undefined
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -257,23 +271,20 @@ const JobMatching = () => {
               </div>
               <h1 className="text-4xl font-bold text-white mb-2">智能岗位推荐</h1>
               <p className="text-sm text-gray-400 mb-2">
-                {loading ? '正在根据测评结果生成岗位...' : '基于您的测评结果，为您推荐最匹配的职位机会'}
+                {loading ? '正在根据职业方向生成岗位要求...' : `先验证「${careerProfile?.primaryDirection.role || filterPosition || '目标岗位'}」及相邻方向的真实要求`}
               </p>
               {error && <p className="text-xs text-yellow-300">{error}</p>}
             </div>
             <div className="text-right">
-              <p className="text-gray-400 text-sm">基于专业</p>
-              <p className="text-white font-semibold">{assessmentData.major || '未填写'}</p>
+              <p className="text-gray-400 text-sm">当前目标</p>
+              <p className="text-white font-semibold">{careerProfile?.primaryDirection.role || filterPosition || '待确认'}</p>
             </div>
           </div>
 
-          {/* 展示测评标签，帮助用户理解推荐依据 */}
-          {assessmentData.traits && assessmentData.traits.length > 0 && (
-            <div className="mt-6 flex flex-wrap gap-2">
-              {assessmentData.traits.slice(0, 6).map((t, i) => (
-                <span key={i} className="px-3 py-1 bg-gray-700 text-gray-300 text-xs rounded-full">{t}</span>
-              ))}
-            </div>
+          {careerProfile?.primaryDirection.rationale && (
+            <p className="mt-5 max-w-3xl border-l-2 border-blue-400 pl-3 text-sm leading-6 text-gray-300">
+              {careerProfile.primaryDirection.rationale}
+            </p>
           )}
         </div>
 

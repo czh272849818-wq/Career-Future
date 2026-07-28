@@ -501,11 +501,15 @@ const ResumeEnhancement = () => {
 
     try {
       const resumeText = await getResumeText();
+      const careerProfile = assessmentData.careerProfile;
       const targetText = [
         jobDescription,
         selectedJob?.title,
         selectedJob?.description,
         selectedJob?.requirements?.join(' '),
+        careerProfile?.primaryDirection.role,
+        careerProfile?.evidence.map(item => item.claim).join(' '),
+        careerProfile?.gaps.join(' '),
         assessmentData.traits?.join(' ')
       ].filter(Boolean).join('\n');
 
@@ -534,6 +538,7 @@ const ResumeEnhancement = () => {
         `【简历文本】${resumeText || '（无）'}`,
         `【目标岗位】${selectedJob ? `${selectedJob.company} / ${selectedJob.title}` : '（未选择）'}`,
         `【岗位描述】${jobDescription || '（无）'}`,
+        `【职业决策依据】${careerProfile ? `${careerProfile.primaryDirection.rationale}\n已有证据：${careerProfile.evidence.map(item => item.claim).join('、')}\n待补齐：${careerProfile.gaps.join('、')}` : '（无）'}`,
         `【命中关键词】${matchedKeywords.join('、') || '（无）'}`,
         `【缺失关键词】${missingKeywords.join('、') || '（无）'}`,
         `【输出字段】${JSON.stringify(aiPrompt)}`,
