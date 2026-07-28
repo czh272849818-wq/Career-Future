@@ -3,7 +3,7 @@
 > **用途**：这是“职向未来 Pro”唯一的长期维护上下文基线。后续所有 `Spec`、`Clarify`、`Design`、`Task`、`Coding`、`Verify` 必须先阅读并遵守本文件。任何与本文件冲突的需求，必须先走 Clarify；任何上线功能必须回写本文件。
 >
 > **基线日期**：2026-07-28
-> **基线提交**：`a0eef06f0c6d1982012d5b8f1ff69b12e745b30e`
+> **已验证生产提交**：`d3d167a`（2026-07-28）
 > **生产站点**：https://career-future.netlify.app/
 > **仓库**：`git@github.com:czh272849818-wq/Career-Future.git`，默认分支 `main`
 
@@ -214,7 +214,7 @@ flowchart TB
 | 文件提取 | Netlify Function；本地 Express 有对应实现 | 支持多格式文本提取，但不同格式的语义能力不同。 |
 | 云端状态 | `@netlify/blobs` | 认证/工作流数据与聊天会话分别存储。 |
 | 本地开发 | Vite 代理 `/api` 到 `http://localhost:3001` | 需要另开 Express 服务才能使本地 API 完整可用。 |
-| 生产部署 | Netlify Git 集成已实际生效 | 最新已发布提交为 `a0eef06`。README 所述 GitHub Actions 工作流在当前仓库不存在。 |
+| 生产部署 | Netlify Git 集成已实际生效 | `d3d167a` 已上线并经生产 Function 验收。README 所述 GitHub Actions 工作流在当前仓库不存在。 |
 
 ## 5. 数据、接口与 AI 链路
 
@@ -224,10 +224,10 @@ flowchart TB
 | --- | --- | --- | --- |
 | 登录会话 | `AuthContext` | 浏览器 `localStorage` | `auth_token` 与 `user_data` 不等于服务端会话验证。 |
 | 测评题库缓存 | `AssessmentContext` | 浏览器 `localStorage`，6 小时 | 仅缓存 AI 生成题目。 |
-| 测评结果 | `AssessmentContext` | 内存；登录后尝试写 `user-assessments` | 本地候选版本已附带 Bearer token；生产尚未部署鉴权修复。 |
-| 跨页面工作流 | `WorkflowContext` | 内存；登录后写 `user-data` | 含画像、选中岗位、优化结果、职业计划；本地候选版本已附带 Bearer token。 |
+| 测评结果 | `AssessmentContext` | 内存；登录后尝试写 `user-assessments` | 生产请求附带 Bearer token，服务端从令牌推导用户 ID。 |
+| 跨页面工作流 | `WorkflowContext` | 内存；登录后写 `user-data` | 含画像、选中岗位、优化结果、职业计划；生产请求附带 Bearer token。 |
 | 聊天会话 | `ChatContext` | 本地优先；登录后 Netlify Blobs | 云端只保存附件元数据，不保存 `dataUrl` 或原文。 |
-| 简历历史 | `ResumeEnhancement` | `user-data.resumes` | 仅保存结构化草稿、摘要和文件名，不保存原始文件；本地候选版本已附带 Bearer token。 |
+| 简历历史 | `ResumeEnhancement` | `user-data.resumes` | 仅保存结构化草稿、摘要和文件名，不保存原始文件；生产请求附带 Bearer token。 |
 | 面试过程与报告 | `InterviewSimulation` | 仅内存/下载文件 | 刷新后丢失，当前不属于云端历史能力。 |
 
 ### 5.2 Netlify API 契约
@@ -347,7 +347,7 @@ flowchart TB
 
 1. 只修改完成需求所必需的模块；不以顺手重构替代明确设计。
 2. 先复用 `apiUrl()`、现有 Context、Netlify Function 和现有模板，再考虑新抽象。
-3. 任何用户数据读写都必须由服务端根据经过验证的身份推导用户 ID；前端传入的 `userId` 永远不可信。当前本地候选版本已实现此规则，生产部署前必须配置 `AUTH_SECRET`。
+3. 任何用户数据读写都必须由服务端根据经过验证的身份推导用户 ID；前端传入的 `userId` 永远不可信。生产已实现此规则；Netlify 控制台仍必须确认 `AUTH_SECRET` 为仅生产作用域的随机密钥。
 4. 密钥只能位于 Netlify/服务端环境变量；不得进入源代码、浏览器环境变量、日志、文档或提交记录。
 5. AI 输出、文件文本、URL 参数、浏览器存储均是外部输入，必须限制大小、校验结构、处理失败。
 6. 所有高风险用户操作都必须有恢复路径：下载失败可重试、解析失败可改粘贴文本、设备失败可改文字回答。
@@ -359,12 +359,12 @@ flowchart TB
 
 | 风险 | 代码事实 | 影响 | 完成标准 |
 | --- | --- | --- | --- |
-| 用户数据越权 | `user-data`、`chat-sessions`、`user-assessments` 仅接受客户端 `userId`，未验证 token。 | 任意知道/猜到 ID 的人可读取或改写数据。 | 服务端验证签名 token，从身份中推导 ID；禁止跨用户读写；补授权测试。 |
-| 认证安全不足 | 密码使用单轮 SHA-256+salt；`AUTH_SECRET` 有 `dev-secret` 回退；token 无服务端验证/过期控制。 | 账号与数据安全不满足开放产品要求。 | 使用成熟身份服务或强密码哈希、短期会话/刷新机制、密钥强制配置、速率限制和审计。 |
+| 用户数据越权 | 生产 `d3d167a` 已验证 Bearer token 的 HMAC 签名、7 天过期及身份归属；服务端忽略客户端写入的 `userId`。 | 未经授权的直接访问已被阻断；`AUTH_SECRET` 未经控制台核验前，签名密钥管理仍是 P0。 | 匿名返回 `401`、用户 A 访问用户 B 返回 `403` 已生产验证；在 Netlify 确认配置仅限生产的 `AUTH_SECRET` 后关闭此项。 |
+| 认证安全不足 | 密码仍使用单轮 SHA-256+salt；token 已有服务端签名验证与 7 天过期控制；`AUTH_SECRET` 仍保留本地 `dev-secret` 回退，且本轮无法读取 Netlify 变量确认生产密钥。 | 账户安全尚不满足开放产品要求。 | 在 Netlify 设置仅限生产作用域的随机 `AUTH_SECRET`，再迁移至成熟身份服务或强密码哈希、短期会话/刷新机制、速率限制和审计。 |
 | AI/文件隐私边界不完整 | 用户简历和附件文本会送入 DeepSeek；无同意、保留期、删除策略或数据说明。 | 个人数据合规和信任风险。 | 增加明确授权、最小化发送、隐私政策、删除入口和数据保留策略。 |
 | 单 Blob 全量状态 | 认证状态保存为单个 `career-future-auth-state/state` JSON，再读取-修改-覆盖。 | 并发写丢失、容量和性能不可扩展。 | 迁移到逐用户键或关系型数据库，并有并发/迁移方案。 |
 
-**2026-07-28 本地候选状态**：`user-data`、`user-assessments` 和 `chat-sessions` 已验证 Bearer token、令牌签名、7 天有效期及用户归属；匿名请求应返回 `401`，用户 A 访问用户 B 应返回 `403`。该修复尚未发布。生产环境必须先配置仅限生产作用域的 `AUTH_SECRET`；当前线上匿名请求仍实际返回 `200`，因此本 P0 不能关闭。
+**2026-07-28 生产验收**：`user-data`、`user-assessments` 和 `chat-sessions` 已验证 Bearer token、令牌签名、7 天有效期及用户归属；匿名请求返回 `401`，演示账户读取自身数据返回 `200`，同一令牌读取其他用户返回 `403`。本轮没有 Netlify 管理员会话，无法读取或写入环境变量，因此 `AUTH_SECRET` 的生产配置必须在控制台完成并复验。
 
 ### P1：核心体验与可靠性
 
@@ -387,7 +387,7 @@ flowchart TB
 | UI 组件一致性 | 页面以 Tailwind 内联样式为主，存在重复卡片、渐变和返回按钮模式。 | 先建立少量页面级与工具级模式，再做定向迁移，禁止全局美化式重构。 |
 | 无运营后台 | 管理员、角色、指标、用户搜索、审计均不存在。 | 作为独立产品面与权限体系需求，不与用户侧小改动混做。 |
 
-**2026-07-28 本地候选状态**：已新增 `tests/auth-token.test.mjs`，覆盖缺失、篡改、过期 token 与跨用户 Functions 访问；ESLint 已从运行时兼容性错误恢复为可执行检查，但当前仍报告 79 个错误和 11 个警告。不要通过关闭规则获得假通过。
+**2026-07-28 质量状态**：已新增 `tests/auth-token.test.mjs`，覆盖缺失、篡改、过期 token 与跨用户 Functions 访问；ESLint 已从运行时兼容性错误恢复为可执行检查，但当前仍报告 79 个错误和 11 个警告。不要通过关闭规则获得假通过。
 
 ## 9. 质量门禁与验证矩阵
 
@@ -396,12 +396,12 @@ flowchart TB
 | 检查 | 状态 | 证据/说明 |
 | --- | --- | --- |
 | `npm run build` | 通过 | Vite 可构建生产产物。 |
-| 线上 Netlify 部署 | 通过 | 最新生产部署引用提交 `a0eef06`。 |
-| `npm run lint` | 未通过 | ESLint 9 与 `@typescript-eslint/no-unused-expressions` 配置兼容性错误，尚未进入代码规则检查。 |
-| 自动化测试 | 未建立 | 不能声明 95% 测试准出已达成。 |
-| 生产安全验收 | 未通过 | P0 鉴权与认证问题未关闭。 |
+| 线上 Netlify 部署 | 通过 | `d3d167a` 的生产 Functions 已响应新鉴权行为。 |
+| `npm run lint` | 未通过 | 工具链已可运行；当前报告 79 个错误、11 个警告，属于需单独治理的历史基线。 |
+| 自动化测试 | 部分通过 | `npm test` 已覆盖 token 签名、过期、篡改和 Functions 越权拒绝；远未达到 95% 测试准出。 |
+| 生产安全验收 | 部分通过 | 认证与越权路径通过生产验收；生产 `AUTH_SECRET` 配置和密码哈希仍未关闭。 |
 
-本次本地验证：`npm test` 4/4 通过，`npm run build` 通过；`npm run lint` 可运行但未通过；线上匿名请求 `/.netlify/functions/user-data?userId=verification-user` 返回 `200`，生产安全验收仍未通过。
+本次验证：`npm test` 4/4 通过，`npm run build` 通过；`npm run lint` 可运行但未通过；生产 `/.netlify/functions/user-data` 匿名访问为 `401`，演示用户本人成为 `200`，跨用户为 `403`。
 
 构建告警也必须被记录：`pdfjs-dist` 与 `onnxruntime-web` 使用 `eval`；主包超过 500 KB。这些不是构建失败，但在 CSP、安全与性能设计中必须被评估。
 
