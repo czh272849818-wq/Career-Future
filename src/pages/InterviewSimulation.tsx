@@ -108,6 +108,10 @@ const InterviewSimulation = () => {
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [cameraStatus, setCameraStatus] = useState<'idle' | 'active' | 'error'>('idle');
+  const [cameraError, setCameraError] = useState('');
+  const [micStatus, setMicStatus] = useState<'idle' | 'active' | 'error'>('idle');
+  const [micError, setMicError] = useState('');
   
   // 面试结果
   const [interviewResult, setInterviewResult] = useState<InterviewResult | null>(null);
@@ -365,7 +369,8 @@ const InterviewSimulation = () => {
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const previewStreamRef = useRef<MediaStream | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const transcriberPromiseRef = useRef<Promise<any> | null>(null);
   const stopResolveRef = useRef<(() => void) | null>(null);
@@ -532,7 +537,7 @@ const InterviewSimulation = () => {
 
   // 初始化摄像头
   useEffect(() => {
-    if (currentStep === 'setup' || currentStep === 'rounds_config') {
+    if (currentStep === 'setup' || currentStep === 'rounds_config' || currentStep === 'interview') {
       initializeCamera();
     }
     return () => {
@@ -540,6 +545,8 @@ const InterviewSimulation = () => {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach(track => track.stop());
       }
+      previewStreamRef.current?.getTracks().forEach(track => track.stop());
+      recordingStreamRef.current?.getTracks().forEach(track => track.stop());
     };
   }, [currentStep]);
 
@@ -586,36 +593,44 @@ const InterviewSimulation = () => {
 
   const initializeCamera = async () => {
     try {
+      setCameraError('');
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: true, 
         audio: true 
       });
+      previewStreamRef.current?.getTracks().forEach(track => track.stop());
+      previewStreamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
+      setCameraStatus('active');
     } catch (error) {
       console.error('无法访问摄像头:', error);
+      setCameraStatus('error');
+      setCameraError('摄像头或麦克风权限未开启，请允许浏览器访问后重试。若你只想练回答，也可直接输入文本。');
     }
   };
 
   const toggleCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
+    const stream = previewStreamRef.current || (videoRef.current?.srcObject as MediaStream | null);
+    if (stream) {
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.enabled = !isCameraOn;
         setIsCameraOn(!isCameraOn);
+        setCameraStatus(videoTrack.enabled ? 'active' : 'idle');
       }
     }
   };
 
   const toggleMic = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
+    const stream = previewStreamRef.current || (videoRef.current?.srcObject as MediaStream | null);
+    if (stream) {
       const audioTrack = stream.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !isMicOn;
         setIsMicOn(!isMicOn);
+        setMicStatus(audioTrack.enabled ? 'active' : 'idle');
       }
     }
   };
@@ -724,12 +739,13 @@ const InterviewSimulation = () => {
   };
 
   const releaseMedia = () => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(track => track.stop());
-      mediaStreamRef.current = null;
-    }
+    previewStreamRef.current?.getTracks().forEach(track => track.stop());
+    previewStreamRef.current = null;
+    recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+    recordingStreamRef.current = null;
     mediaRecorderRef.current = null;
     setIsRecording(false);
+    setMicStatus('idle');
   };
 
   const transcribeAudio = async (blob: Blob) => {
@@ -818,8 +834,10 @@ const InterviewSimulation = () => {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
+      const baseStream = previewStreamRef.current || await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+      const stream = baseStream.clone();
+      recordingStreamRef.current = stream;
       audioChunksRef.current = [];
 
       const recorder = new MediaRecorder(
@@ -844,10 +862,13 @@ const InterviewSimulation = () => {
       mediaRecorderRef.current = recorder;
       recorder.start();
       setIsRecording(true);
+      setMicStatus('active');
       setSpeechStatus('录音中，再次点击可停止并转写。');
     } catch (error) {
       console.error('[interview speech] microphone access failed:', error);
-      setSpeechStatus('麦克风权限未开启，请允许后重试。');
+      setMicStatus('error');
+      setMicError('麦克风不可用，请在浏览器权限里允许麦克风。你仍可手动输入回答。');
+      setSpeechStatus('麦克风权限未开启，请允许后重试，或直接输入回答。');
       releaseMedia();
     }
   };
@@ -1599,22 +1620,24 @@ const InterviewSimulation = () => {
                 <div className="flex justify-center space-x-4 mt-6">
                   <button
                     onClick={toggleCamera}
+                    disabled={cameraStatus === 'error'}
                     className={`p-3 rounded-full transition-colors ${
                       isCameraOn 
                         ? 'bg-gray-700 hover:bg-gray-600 text-white' 
                         : 'bg-red-600 hover:bg-red-700 text-white'
-                    }`}
+                    } disabled:cursor-not-allowed disabled:opacity-50`}
                   >
                     {isCameraOn ? <Camera className="h-5 w-5" /> : <CameraOff className="h-5 w-5" />}
                   </button>
                   
                   <button
                     onClick={toggleMic}
+                    disabled={micStatus === 'error'}
                     className={`p-3 rounded-full transition-colors ${
                       isMicOn 
                         ? 'bg-gray-700 hover:bg-gray-600 text-white' 
                         : 'bg-red-600 hover:bg-red-700 text-white'
-                    }`}
+                    } disabled:cursor-not-allowed disabled:opacity-50`}
                   >
                     {isMicOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
                   </button>
@@ -1681,6 +1704,20 @@ const InterviewSimulation = () => {
                           {isRecording ? 'Listening' : 'Asking'}
                         </div>
                       </div>
+                      <div className="mt-3 rounded-xl border border-gray-700 bg-gray-950/60 p-3">
+                        <div className="flex items-center justify-between text-xs text-gray-400">
+                          <span>面试官状态</span>
+                          <span className={digitalHumanMode === 'ask' ? 'text-emerald-300' : 'text-gray-300'}>
+                            {digitalHumanMode === 'ask' ? '正在提问' : '等待开始'}
+                          </span>
+                        </div>
+                        <div className="mt-2 h-2 rounded-full bg-gray-800">
+                          <div className={`h-2 rounded-full ${digitalHumanMode === 'ask' ? 'w-3/4 bg-gradient-to-r from-purple-500 to-cyan-400 animate-pulse' : 'w-1/3 bg-gray-600'}`} />
+                        </div>
+                        <p className="mt-2 text-[11px] leading-5 text-gray-400">
+                          这是数字人面试官的稳定占位层。摄像头不可用时，仍保留提问和状态反馈。
+                        </p>
+                      </div>
                       <div className="mt-4 grid grid-cols-3 gap-2">
                         <div className="rounded-xl border border-gray-700 bg-white/5 p-2 text-center">
                           <div className={`mx-auto mb-2 h-2 w-2 rounded-full ${digitalHumanMode === 'ask' ? 'bg-purple-400 animate-pulse' : 'bg-gray-500'}`} />
@@ -1701,6 +1738,10 @@ const InterviewSimulation = () => {
                       <p>岗位：{selectedPositionLocal || '未选择'}</p>
                       <p>状态：{isRecording ? '正在听取回答' : digitalHumanMode === 'ask' ? '正在提问' : '等待开始'}</p>
                       <p>语音模式：{voiceMode === 'auto' ? '自动识别' : '按住说话'}</p>
+                      <p>摄像头：{cameraStatus === 'active' ? '已开启' : cameraStatus === 'error' ? '权限异常' : '待开启'}</p>
+                      <p>麦克风：{micStatus === 'active' ? '已开启' : micStatus === 'error' ? '权限异常' : '待开启'}</p>
+                      {cameraError && <p className="text-xs text-red-300">{cameraError}</p>}
+                      {micError && <p className="text-xs text-red-300">{micError}</p>}
                     </div>
                   </div>
                   <div className="rounded-2xl border border-gray-700 bg-gray-900/70 p-4">
@@ -1748,6 +1789,9 @@ const InterviewSimulation = () => {
                   />
                   {speechStatus && (
                     <p className="mt-2 text-xs text-yellow-300">{speechStatus}</p>
+                  )}
+                  {!speechStatus && micError && (
+                    <p className="mt-2 text-xs text-red-300">{micError}</p>
                   )}
                 </div>
               </div>

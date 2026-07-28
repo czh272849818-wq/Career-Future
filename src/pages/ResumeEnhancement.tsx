@@ -1109,8 +1109,8 @@ const ResumeEnhancement = () => {
               <textarea
                 readOnly
                 value={draft?.copyText || '生成后可复制完整简历正文。'}
-                rows={18}
-                className="w-full resize-none rounded-xl border border-gray-600 bg-gray-950/60 p-4 text-sm leading-7 text-gray-100 focus:outline-none"
+                aria-label="可复制的完整简历正文"
+                className="h-[34rem] w-full resize-none overflow-y-auto rounded-xl border border-gray-600 bg-gray-950/60 p-4 text-sm leading-7 text-gray-100 focus:outline-none"
               />
             </div>
           </div>

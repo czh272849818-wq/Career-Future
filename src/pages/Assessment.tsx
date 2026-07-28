@@ -57,6 +57,7 @@ const Assessment = () => {
     traits?: string[];
     recommendations?: string[];
   } | null>(null);
+  const [aiSummaryMode, setAiSummaryMode] = useState<'compact' | 'full'>('compact');
   // 新增：题库优化提示
   // 已在顶部声明 showOptimizedNotice，避免重复
   
@@ -630,10 +631,17 @@ const Assessment = () => {
         `【价值观】\n${additionalData.values || '未填写'}\n\n` +
         `【性格】\n${additionalData.personality || '未填写'}\n\n` +
         `【专业】\n${additionalData.major || '未填写'}\n\n` +
-        `【要求】请完成：1) 个人优势与潜在短板；2) 与专业/行业/岗位的匹配度及证据；3) 推荐3-5个岗位与技能清单；4) 未来3个月行动计划（含学习资源与项目实践建议）；5) 若简历存在问题，请指出并给出优化方向。`;
+        `【要求】请只输出适合展示在产品里的结构化结果，避免长篇分析。` +
+        `必须按以下 JSON 结构输出：` +
+        `{"headline":"一句话总判断","subline":"一句话核心定位","strengths":["优点1","优点2","优点3"],` +
+        `"risks":["风险1","风险2"],"fit":["匹配点1","匹配点2"],"actions":["行动1","行动2","行动3"],"evidence":["证据1","证据2"],"summary":"80字以内结论"}` +
+        `\n要求：` +
+        `1) strengths/risks/fit/actions/evidence 每项最多 3 条，单条不超过 18 个中文字符；` +
+        `2) summary 不要超过 80 字；` +
+        `3) 不要输出 Markdown，不要输出解释性段落，不要输出多余标题。`;
 
       const messages = [
-        { role: 'system', content: '你是资深中文职业分析顾问，擅长结合测评结果、简历与专业背景给出结构化、可执行的职业建议。' },
+        { role: 'system', content: '你是资深中文职业分析顾问。你的任务是输出短、清晰、结构化的职业分析结果，避免冗长说明。只输出 JSON。' },
         { role: 'user', content: userContent }
       ];
 
@@ -712,6 +720,14 @@ const Assessment = () => {
             scores?: Record<string, number>;
             traits?: string[];
             recommendations?: string[];
+            headline?: string;
+            subline?: string;
+            strengths?: string[];
+            risks?: string[];
+            fit?: string[];
+            actions?: string[];
+            evidence?: string[];
+            summary?: string;
           } = {};
           if (parsed && typeof parsed === 'object') {
             if (parsed.scores && typeof parsed.scores === 'object') {
@@ -730,8 +746,16 @@ const Assessment = () => {
               const rs = parsed.recommendations.map((x: any) => String(x)).filter(Boolean);
               if (rs.length) normalized.recommendations = rs;
             }
+            if (typeof parsed.headline === 'string') normalized.headline = parsed.headline.trim();
+            if (typeof parsed.subline === 'string') normalized.subline = parsed.subline.trim();
+            if (Array.isArray(parsed.strengths)) normalized.strengths = parsed.strengths.map((x: any) => String(x)).filter(Boolean).slice(0, 3);
+            if (Array.isArray(parsed.risks)) normalized.risks = parsed.risks.map((x: any) => String(x)).filter(Boolean).slice(0, 3);
+            if (Array.isArray(parsed.fit)) normalized.fit = parsed.fit.map((x: any) => String(x)).filter(Boolean).slice(0, 3);
+            if (Array.isArray(parsed.actions)) normalized.actions = parsed.actions.map((x: any) => String(x)).filter(Boolean).slice(0, 3);
+            if (Array.isArray(parsed.evidence)) normalized.evidence = parsed.evidence.map((x: any) => String(x)).filter(Boolean).slice(0, 3);
+            if (typeof parsed.summary === 'string') normalized.summary = parsed.summary.trim();
           }
-          if (normalized.scores || normalized.traits || normalized.recommendations) {
+          if (normalized.scores || normalized.traits || normalized.recommendations || normalized.summary) {
             setAiStructured(normalized);
           }
         } catch (jsonErr) {
@@ -1284,17 +1308,92 @@ const Assessment = () => {
                     <p className="text-sm text-red-400">{aiError}</p>
                   )}
                   {aiAnalysisText && (
-                    <ReactMarkdown
-                      className="max-w-none text-sm text-white"
-                      remarkPlugins={[remarkGfm]}
-                    >
-                      {aiAnalysisText}
-                    </ReactMarkdown>
+                      <div className="space-y-3 text-sm text-white">
+                        {aiAnalysisText ? (
+                          <>
+                            {aiSummaryMode === 'full' ? (
+                              <ReactMarkdown
+                                className="max-w-none text-sm text-white"
+                                remarkPlugins={[remarkGfm]}
+                              >
+                                {aiAnalysisText}
+                              </ReactMarkdown>
+                            ) : (
+                              <div className="space-y-3">
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4">
+                                    <p className="text-xs text-gray-400">总判断</p>
+                                    <p className="mt-1 font-semibold text-white">{aiStructured?.summary || aiAnalysisText.slice(0, 80) || '待生成'}</p>
+                                  </div>
+                                  <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4">
+                                    <p className="text-xs text-gray-400">定位</p>
+                                    <p className="mt-1 font-semibold text-white">{aiStructured?.subline || '待生成'}</p>
+                                  </div>
+                                </div>
+
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <div className="rounded-xl border border-emerald-700/40 bg-emerald-900/20 p-4">
+                                    <p className="text-xs font-semibold text-emerald-200">优势</p>
+                                    <ul className="mt-2 space-y-1 text-emerald-50">
+                                      {(aiStructured?.strengths || []).slice(0, 3).map((item: string) => <li key={item}>• {item}</li>)}
+                                    </ul>
+                                  </div>
+                                  <div className="rounded-xl border border-yellow-700/40 bg-yellow-900/20 p-4">
+                                    <p className="text-xs font-semibold text-yellow-200">风险</p>
+                                    <ul className="mt-2 space-y-1 text-yellow-50">
+                                      {(aiStructured?.risks || []).slice(0, 3).map((item: string) => <li key={item}>• {item}</li>)}
+                                    </ul>
+                                  </div>
+                                </div>
+
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <div className="rounded-xl border border-blue-700/40 bg-blue-900/20 p-4">
+                                    <p className="text-xs font-semibold text-blue-200">匹配证据</p>
+                                    <ul className="mt-2 space-y-1 text-blue-50">
+                                      {(aiStructured?.fit || []).slice(0, 3).map((item: string) => <li key={item}>• {item}</li>)}
+                                    </ul>
+                                  </div>
+                                  <div className="rounded-xl border border-purple-700/40 bg-purple-900/20 p-4">
+                                    <p className="text-xs font-semibold text-purple-200">下一步</p>
+                                    <ul className="mt-2 space-y-1 text-purple-50">
+                                      {(aiStructured?.actions || []).slice(0, 3).map((item: string) => <li key={item}>• {item}</li>)}
+                                    </ul>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-700 bg-gray-900/60 p-4">
+                                  <div>
+                                    <p className="text-xs text-gray-400">展开原文</p>
+                                    <p className="text-xs text-gray-500">仅在需要查看完整分析时展开</p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setAiSummaryMode(prev => prev === 'compact' ? 'full' : 'compact')}
+                                    className="rounded-lg border border-gray-600 px-3 py-2 text-xs text-gray-200 transition hover:bg-gray-700"
+                                  >
+                                    {aiSummaryMode === 'compact' ? '查看完整分析' : '收起'}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        ) : null}
+                      </div>
                   )}
                   {aiStructured && (
-                    <div className="mt-3 text-xs text-gray-300">
-                      <p>结构化结果已生成，可用于覆盖报告：</p>
-                      <p>维度数：{Object.keys(aiStructured.scores || {}).length}，标签数：{(aiStructured.traits || []).length}，建议数：{(aiStructured.recommendations || []).length}</p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-3 text-xs text-gray-300">
+                        <p className="text-gray-500">维度</p>
+                        <p className="mt-1 text-lg font-semibold text-white">{Object.keys(aiStructured.scores || {}).length}</p>
+                      </div>
+                      <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-3 text-xs text-gray-300">
+                        <p className="text-gray-500">标签</p>
+                        <p className="mt-1 text-lg font-semibold text-white">{(aiStructured.traits || []).length}</p>
+                      </div>
+                      <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-3 text-xs text-gray-300">
+                        <p className="text-gray-500">建议</p>
+                        <p className="mt-1 text-lg font-semibold text-white">{(aiStructured.recommendations || []).length}</p>
+                      </div>
                     </div>
                   )}
                 </div>
