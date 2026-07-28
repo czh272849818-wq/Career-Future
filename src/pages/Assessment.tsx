@@ -1545,19 +1545,20 @@ const Assessment = () => {
       <div className="max-w-4xl mx-auto">
         <WorkflowProgress />
         
-        {/* Header */}
-        <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-xl p-8 mb-8 border border-gray-700">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full mb-6">
-            <Brain className="h-8 w-8 text-white" />
+        <header className="mb-6 flex items-start gap-4 border-b border-gray-700 pb-6">
+          <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gradient-to-r from-purple-600 to-blue-600">
+            <Brain className="h-5 w-5 text-white" />
           </div>
-          <h1 className="text-4xl font-bold text-white mb-4">AI职业隐藏身份测评</h1>
-          <p className="text-xl text-gray-300 max-w-2xl mx-auto">
-            通过科学的评估方法，深度挖掘你的职业潜能和隐藏优势，为你的职业发展提供精准指导
-          </p>
-        </div>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold text-white sm:text-3xl">职业方向测评</h1>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-300">
+              从你的偏好、能力与目标岗位出发，生成下一步求职建议。
+            </p>
+          </div>
+        </header>
 
         {/* Assessment Types */}
-        <div className="grid md:grid-cols-2 gap-8 mb-12">
+        <div className="mb-8 grid gap-6 md:grid-cols-2">
           {/* General Assessment */}
           <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border border-gray-700">
             <div className="p-8">
@@ -1691,37 +1692,6 @@ const Assessment = () => {
                 开始专项测评
                 <ArrowRight className="ml-2 h-4 w-4" />
               </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Features */}
-        <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-8 border border-gray-700">
-          <h2 className="text-2xl font-bold text-white mb-6 text-center">测评特色功能</h2>
-          
-          <div className="grid md:grid-cols-3 gap-6">
-            <div className="text-center">
-              <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 rounded-lg mb-4">
-                <BarChart3 className="h-6 w-6 text-blue-600" />
-              </div>
-              <h3 className="font-semibold text-white mb-2">雷达图可视化</h3>
-              <p className="text-gray-300 text-sm">多维度能力雷达图，直观展示你的能力分布和优势领域</p>
-            </div>
-            
-            <div className="text-center">
-              <div className="inline-flex items-center justify-center w-12 h-12 bg-purple-100 rounded-lg mb-4">
-                <Lightbulb className="h-6 w-6 text-purple-600" />
-              </div>
-              <h3 className="font-semibold text-white mb-2">智能特质提示</h3>
-              <p className="text-gray-300 text-sm">答题过程中实时显示特质提示，帮助你更好理解选择意义</p>
-            </div>
-            
-            <div className="text-center">
-              <div className="inline-flex items-center justify-center w-12 h-12 bg-green-100 rounded-lg mb-4">
-                <Clock className="h-6 w-6 text-green-600" />
-              </div>
-              <h3 className="font-semibold text-white mb-2">断点续答功能</h3>
-              <p className="text-gray-300 text-sm">支持登录状态下的断点续答，随时暂停随时继续</p>
             </div>
           </div>
         </div>
