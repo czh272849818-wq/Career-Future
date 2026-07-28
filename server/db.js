@@ -4,7 +4,11 @@ import crypto from 'crypto';
 
 const DATA_DIR = path.join(process.cwd(), 'server', 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
-const AUTH_SECRET = process.env.AUTH_SECRET || 'dev-secret';
+const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function authSecret() {
+  return process.env.AUTH_SECRET || 'dev-secret';
+}
 
 function ensureDataFile() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -243,11 +247,32 @@ export function addAssessment(userId, assessment) {
   return assessment;
 }
 
-export function createToken(user) {
-  // 轻量令牌（非JWT）：HMAC签名的payload
-  const payload = JSON.stringify({ id: user.id, ts: Date.now() });
-  const sig = crypto.createHmac('sha256', AUTH_SECRET).update(payload).digest('hex');
+export function createToken(user, issuedAt = Date.now()) {
+  if (!user?.id) throw new Error('MISSING_USER_ID');
+  const payload = JSON.stringify({ id: user.id, iat: issuedAt, exp: issuedAt + TOKEN_TTL_MS });
+  const sig = crypto.createHmac('sha256', authSecret()).update(payload).digest('hex');
   return Buffer.from(payload).toString('base64') + '.' + sig;
+}
+
+export function verifyToken(token, now = Date.now()) {
+  const [encodedPayload, signature, ...extra] = String(token || '').split('.');
+  if (!encodedPayload || !signature || extra.length) return null;
+
+  const payloadText = Buffer.from(encodedPayload, 'base64').toString('utf8');
+  const expected = crypto.createHmac('sha256', authSecret()).update(payloadText).digest('hex');
+  const supplied = Buffer.from(signature, 'hex');
+  const expectedBuffer = Buffer.from(expected, 'hex');
+  if (supplied.length !== expectedBuffer.length || !crypto.timingSafeEqual(supplied, expectedBuffer)) return null;
+
+  try {
+    const payload = JSON.parse(payloadText);
+    const issuedAt = Number(payload?.iat ?? payload?.ts);
+    const expiresAt = Number(payload?.exp ?? (issuedAt + TOKEN_TTL_MS));
+    if (!payload?.id || !Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || expiresAt < now) return null;
+    return { id: String(payload.id) };
+  } catch {
+    return null;
+  }
 }
 
 export function sanitizeUser(user) {

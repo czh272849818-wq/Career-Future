@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { DEFAULT_LLM_MODEL, DEFAULT_TEMPERATURE } from '../llm/config';
-import { apiUrl } from '../api';
+import { apiUrl, authHeaders } from '../api';
 
 interface AssessmentQuestion {
   id: string;
@@ -719,12 +719,11 @@ export function AssessmentProvider({ children }: { children: React.ReactNode }) 
     if (isAuthenticated && user?.id) {
       (async () => {
         try {
-          const token = localStorage.getItem('auth_token') || '';
           const resp = await fetch(apiUrl(`/api/users/${user.id}/assessments`), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {})
+              ...authHeaders()
             },
             body: JSON.stringify(result)
           });

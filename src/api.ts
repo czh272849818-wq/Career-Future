@@ -1,4 +1,25 @@
 export const API_BASE = import.meta.env.VITE_API_BASE ?? '';
+const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function isAuthTokenExpired(token: string, now = Date.now()): boolean {
+  try {
+    const [encodedPayload] = token.split('.');
+    if (!encodedPayload) return true;
+
+    const payload = JSON.parse(window.atob(encodedPayload));
+    const issuedAt = Number(payload?.iat ?? payload?.ts);
+    const expiresAt = Number(payload?.exp ?? (issuedAt + TOKEN_TTL_MS));
+    return !Number.isFinite(expiresAt) || expiresAt <= now;
+  } catch {
+    return true;
+  }
+}
+
+export function authHeaders(): HeadersInit {
+  if (typeof window === 'undefined') return {};
+  const token = localStorage.getItem('auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 function isNetlifyDomain(base?: string): boolean {
   try {
@@ -6,7 +27,9 @@ function isNetlifyDomain(base?: string): boolean {
       const host = new URL(base).hostname;
       if (/netlify\.app$/i.test(host)) return true;
     }
-  } catch {}
+  } catch {
+    return false;
+  }
   if (typeof window !== 'undefined') {
     if (/netlify\.app$/i.test(window.location.hostname)) return true;
   }

@@ -17,7 +17,8 @@ import {
   createToken,
   getUserData,
   addAssessment,
-  upsertUserData
+  upsertUserData,
+  verifyToken
 } from './db.js';
 
 dotenv.config({ path: '.env.local' });
@@ -37,11 +38,27 @@ if (!API_KEY) {
 // 初始化演示账户
 ensureDemoUser();
 
+function requireCurrentUser(req, res, requestedUserId) {
+  const authorization = req.get('authorization') || '';
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  const user = match ? verifyToken(match[1]) : null;
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return null;
+  }
+  if (requestedUserId && user.id !== String(requestedUserId).trim()) {
+    res.status(403).json({ error: 'Forbidden' });
+    return null;
+  }
+  return user;
+}
+
 // 认证与用户数据（按用户ID索引）
 app.post('/api/auth/register', (req, res) => {
   try {
     const { email = '', password = '', name = '', phone = '' } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: '邮箱与密码为必填' });
+    if (String(password).length < 8) return res.status(400).json({ error: '密码至少需要 8 位' });
     const user = createUser({ email, password, name, phone });
     const token = createToken(user);
     return res.json({ token, user: sanitizeUser(user) });
@@ -70,7 +87,9 @@ app.post('/api/auth/login', (req, res) => {
 
 app.get('/api/users/:id/data', (req, res) => {
   try {
-    const userId = req.params.id;
+    const currentUser = requireCurrentUser(req, res, req.params.id);
+    if (!currentUser) return;
+    const userId = currentUser.id;
     const data = getUserData(userId);
     if (!data) return res.status(404).json({ error: '用户数据不存在' });
     return res.json({ userId, data });
@@ -82,7 +101,9 @@ app.get('/api/users/:id/data', (req, res) => {
 
 app.post('/api/users/:id/assessments', (req, res) => {
   try {
-    const userId = req.params.id;
+    const currentUser = requireCurrentUser(req, res, req.params.id);
+    if (!currentUser) return;
+    const userId = currentUser.id;
     const assessment = req.body || {};
     if (!assessment || !assessment.id) return res.status(400).json({ error: 'assessment内容缺失' });
     const saved = addAssessment(userId, assessment);
@@ -95,7 +116,9 @@ app.post('/api/users/:id/assessments', (req, res) => {
 
 app.post('/api/users/:id/data', (req, res) => {
   try {
-    const userId = req.params.id;
+    const currentUser = requireCurrentUser(req, res, req.params.id);
+    if (!currentUser) return;
+    const userId = currentUser.id;
     const patch = req.body || {};
     const merged = upsertUserData(userId, patch);
     return res.json({ ok: true, data: merged });
@@ -107,8 +130,9 @@ app.post('/api/users/:id/data', (req, res) => {
 
 app.get('/api/chat-sessions', (req, res) => {
   try {
-    const userId = String(req.query.userId || '').trim();
-    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    const currentUser = requireCurrentUser(req, res, req.query.userId);
+    if (!currentUser) return;
+    const userId = currentUser.id;
     const data = getUserData(userId);
     if (!data) {
       return res.json({ userId, sessions: [], currentSessionId: null, updatedAt: null });
@@ -128,14 +152,14 @@ app.get('/api/chat-sessions', (req, res) => {
 app.post('/api/chat-sessions', (req, res) => {
   try {
     const { userId = '', sessions = [], currentSessionId = null } = req.body || {};
-    const trimmedUserId = String(userId).trim();
-    if (!trimmedUserId) return res.status(400).json({ error: 'userId is required' });
-    const merged = upsertUserData(trimmedUserId, {
+    const currentUser = requireCurrentUser(req, res, userId);
+    if (!currentUser) return;
+    const merged = upsertUserData(currentUser.id, {
       chatSessions: Array.isArray(sessions) ? sessions : [],
       currentSessionId: currentSessionId || null,
       updatedAt: new Date().toISOString()
     });
-    return res.json({ ok: true, data: merged });
+    return res.json({ ok: true, userId: currentUser.id, data: merged });
   } catch (err) {
     console.error('[chat-sessions save] error:', err);
     return res.status(500).json({ error: '保存聊天记录失败' });

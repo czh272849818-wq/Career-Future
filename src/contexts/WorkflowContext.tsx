@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from './AuthContext';
-import { apiUrl } from '../api';
+import { apiUrl, authHeaders } from '../api';
 
 interface AssessmentData {
   answers: { [questionId: string]: string };
@@ -65,7 +65,9 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
   const userId = user?.id || null;
 
   const loadRemoteWorkflowState = useCallback(async (remoteUserId: string) => {
-    const resp = await fetch(apiUrl(`/api/users/${encodeURIComponent(remoteUserId)}/data`));
+    const resp = await fetch(apiUrl(`/api/users/${encodeURIComponent(remoteUserId)}/data`), {
+      headers: authHeaders()
+    });
     if (!resp.ok) return null;
     const data = await resp.json().catch(() => null);
     return data?.data || null;
@@ -75,7 +77,7 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
     if (!userId || !isAuthenticated) return;
     await fetch(apiUrl(`/api/users/${encodeURIComponent(userId)}/data`), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(patch)
     });
   }, [isAuthenticated, userId]);

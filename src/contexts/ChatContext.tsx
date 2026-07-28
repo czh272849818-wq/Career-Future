@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
 import { useAuth } from './AuthContext';
-import { apiUrl } from '../api';
+import { apiUrl, authHeaders } from '../api';
 
 import { DEFAULT_LLM_MODEL, DEFAULT_TEMPERATURE, DEFAULT_STREAM } from '../llm/config';
 
@@ -145,7 +145,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   };
 
   const loadRemoteSessions = async (remoteUserId: string) => {
-    const resp = await fetch(apiUrl(`/api/chat-sessions?userId=${encodeURIComponent(remoteUserId)}`));
+    const resp = await fetch(apiUrl(`/api/chat-sessions?userId=${encodeURIComponent(remoteUserId)}`), {
+      headers: authHeaders()
+    });
     if (!resp.ok) {
       if (resp.status !== 404) {
         const text = await resp.text().catch(() => '');
@@ -165,7 +167,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const saveRemoteSessions = async (remoteUserId: string, nextSessions: ChatSession[], nextCurrentSessionId: string | null) => {
     const resp = await fetch(apiUrl('/api/chat-sessions'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({
         userId: remoteUserId,
         sessions: nextSessions.map(serializeSession),

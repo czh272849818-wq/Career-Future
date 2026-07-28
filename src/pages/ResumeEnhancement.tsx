@@ -17,7 +17,7 @@ import { useWorkflow } from '../contexts/WorkflowContext';
 import { useAuth } from '../contexts/AuthContext';
 import WorkflowProgress from '../components/workflow/WorkflowProgress';
 import BackButton from '../components/ui/BackButton';
-import { apiUrl } from '../api';
+import { apiUrl, authHeaders } from '../api';
 
 type ResumeDraft = {
   headline: string;
@@ -337,7 +337,9 @@ const ResumeEnhancement = () => {
     const loadHistory = async () => {
       setHistoryLoading(true);
       try {
-        const resp = await fetch(apiUrl(`/api/users/${encodeURIComponent(user.id)}/data`));
+        const resp = await fetch(apiUrl(`/api/users/${encodeURIComponent(user.id)}/data`), {
+          headers: authHeaders()
+        });
         if (!resp.ok) return;
         const payload = await resp.json().catch(() => ({}));
         const history = Array.isArray(payload?.data?.resumes) ? payload.data.resumes : [];
@@ -671,13 +673,15 @@ const ResumeEnhancement = () => {
         };
 
         try {
-          const resp = await fetch(apiUrl(`/api/users/${encodeURIComponent(user.id)}/data`));
+          const resp = await fetch(apiUrl(`/api/users/${encodeURIComponent(user.id)}/data`), {
+            headers: authHeaders()
+          });
           const payload = await resp.json().catch(() => ({}));
           const existing = Array.isArray(payload?.data?.resumes) ? payload.data.resumes : [];
           const nextResumes = [savedRecord, ...existing].slice(0, 10);
           await fetch(apiUrl(`/api/users/${encodeURIComponent(user.id)}/data`), {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({
               optimizedResume: savedRecord,
               resumes: nextResumes

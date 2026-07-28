@@ -1,9 +1,9 @@
-import { addAssessment } from './_shared/auth-store.mjs';
+import { addAssessment, getAuthenticatedUser, ownsUserId } from './_shared/auth-store.mjs';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'content-type',
+  'Access-Control-Allow-Headers': 'content-type, authorization',
 };
 
 export default async (req) => {
@@ -12,11 +12,17 @@ export default async (req) => {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers });
   }
 
-  const url = new URL(req.url);
-  const userId = String(url.searchParams.get('userId') || '').trim();
-  if (!userId) {
-    return new Response(JSON.stringify({ error: 'userId is required' }), { status: 400, headers });
+  const authenticatedUser = getAuthenticatedUser(req);
+  if (!authenticatedUser) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers });
   }
+
+  const url = new URL(req.url);
+  const requestedUserId = String(url.searchParams.get('userId') || '').trim();
+  if (requestedUserId && !ownsUserId(authenticatedUser, requestedUserId)) {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers });
+  }
+  const userId = authenticatedUser.id;
 
   let assessment;
   try {

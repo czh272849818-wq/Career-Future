@@ -3,6 +3,7 @@ import { getStore } from '@netlify/blobs';
 
 const STORE_NAME = 'career-future-auth-state';
 const STATE_KEY = 'state';
+const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function initialState() {
   return {
@@ -58,11 +59,47 @@ function sanitizeUser(user) {
   return safe;
 }
 
-function createToken(user) {
-  const secret = process.env.AUTH_SECRET || 'dev-secret';
-  const payload = JSON.stringify({ id: user.id, ts: Date.now() });
+function authSecret() {
+  return process.env.AUTH_SECRET || 'dev-secret';
+}
+
+function createToken(user, issuedAt = Date.now()) {
+  if (!user?.id) throw new Error('MISSING_USER_ID');
+  const payload = JSON.stringify({ id: user.id, iat: issuedAt, exp: issuedAt + TOKEN_TTL_MS });
+  const secret = authSecret();
   const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
   return Buffer.from(payload).toString('base64') + '.' + sig;
+}
+
+function verifyToken(token, now = Date.now()) {
+  const [encodedPayload, signature, ...extra] = String(token || '').split('.');
+  if (!encodedPayload || !signature || extra.length) return null;
+
+  const payloadText = Buffer.from(encodedPayload, 'base64').toString('utf8');
+  const expected = crypto.createHmac('sha256', authSecret()).update(payloadText).digest('hex');
+  const supplied = Buffer.from(signature, 'hex');
+  const expectedBuffer = Buffer.from(expected, 'hex');
+  if (supplied.length !== expectedBuffer.length || !crypto.timingSafeEqual(supplied, expectedBuffer)) return null;
+
+  try {
+    const payload = JSON.parse(payloadText);
+    const issuedAt = Number(payload?.iat ?? payload?.ts);
+    const expiresAt = Number(payload?.exp ?? (issuedAt + TOKEN_TTL_MS));
+    if (!payload?.id || !Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || expiresAt < now) return null;
+    return { id: String(payload.id) };
+  } catch {
+    return null;
+  }
+}
+
+function getAuthenticatedUser(req) {
+  const header = req?.headers?.get?.('authorization') || req?.headers?.authorization || '';
+  const match = String(header).match(/^Bearer\s+(.+)$/i);
+  return match ? verifyToken(match[1]) : null;
+}
+
+function ownsUserId(user, userId) {
+  return Boolean(user?.id && user.id === String(userId || '').trim());
 }
 
 async function readState() {
@@ -92,12 +129,15 @@ async function withState(mutator) {
 
 export {
   createToken,
+  getAuthenticatedUser,
   ensureDataRecord,
   hashPassword,
   normalizePhone,
+  ownsUserId,
   readState,
   sanitizeUser,
   uid,
+  verifyToken,
   withState,
   writeState,
   newUserData

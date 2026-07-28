@@ -25,6 +25,9 @@ export default async (req, context) => {
   if (!email || !password) {
     return new Response(JSON.stringify({ error: '邮箱与密码为必填' }), { status: 400, headers });
   }
+  if (String(password).length < 8) {
+    return new Response(JSON.stringify({ error: '密码至少需要 8 位' }), { status: 400, headers });
+  }
 
   try {
     const user = await createUser({ email, password, name, phone });

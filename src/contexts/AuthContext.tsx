@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { apiUrl } from '../api';
+import { apiUrl, isAuthTokenExpired } from '../api';
 
 interface User {
   id: string;
@@ -32,7 +32,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const token = localStorage.getItem('auth_token');
     const userData = localStorage.getItem('user_data');
     
-    if (token && userData) {
+    if (token && userData && !isAuthTokenExpired(token)) {
       try {
         const parsedUser = JSON.parse(userData);
         setUser({
@@ -45,6 +45,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('auth_token');
         localStorage.removeItem('user_data');
       }
+    } else if (token || userData) {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('user_data');
     }
     setIsReady(true);
   }, []);
