@@ -19,10 +19,6 @@ const Homepage = () => {
             </span>
           </h1>
 
-          <p className="mx-auto mt-8 max-w-2xl text-lg leading-8 text-slate-300 sm:text-xl">
-            把测评、岗位、简历和面试训练压缩成一条可执行路径，减少试错，提高求职转化。
-          </p>
-
           <div className="mt-10 flex flex-col justify-center gap-4 sm:flex-row">
             <Link
               to="/assessment"
@@ -37,12 +33,6 @@ const Homepage = () => {
             >
               查看增长控制台
             </Link>
-          </div>
-
-          <div className="mx-auto mt-12 grid max-w-3xl grid-cols-3 gap-3 text-sm text-slate-400">
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-3">测评定位</div>
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-3">岗位聚焦</div>
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-3">面试转化</div>
           </div>
         </div>
       </section>
