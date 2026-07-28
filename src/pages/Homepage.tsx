@@ -12,26 +12,20 @@ const Homepage = () => {
         </div>
 
         <div className="w-full max-w-5xl text-center">
-          <h1 className="mx-auto max-w-5xl text-6xl font-black leading-[0.95] tracking-tight sm:text-7xl lg:text-8xl">
-            你的人生
-            <span className="block bg-gradient-to-r from-emerald-300 via-cyan-300 to-blue-300 bg-clip-text text-transparent">
+          <h1 className="mx-auto max-w-4xl text-5xl font-black leading-tight sm:text-6xl lg:text-7xl">
+            你的人生{' '}
+            <span className="bg-gradient-to-r from-emerald-300 via-cyan-300 to-blue-300 bg-clip-text text-transparent">
               不止于此
             </span>
           </h1>
 
-          <div className="mt-10 flex flex-col justify-center gap-4 sm:flex-row">
+          <div className="mt-10 flex justify-center">
             <Link
               to="/assessment"
               className="inline-flex items-center justify-center rounded-2xl bg-emerald-400 px-8 py-4 text-base font-bold text-slate-950 shadow-[0_20px_60px_rgba(52,211,153,0.25)] transition hover:-translate-y-0.5 hover:bg-emerald-300"
             >
               开始职业测评
               <ArrowRight className="ml-2 h-5 w-5" />
-            </Link>
-            <Link
-              to="/dashboard"
-              className="inline-flex items-center justify-center rounded-2xl border border-slate-600 px-8 py-4 text-base font-bold text-slate-200 transition hover:border-slate-400 hover:bg-white/5"
-            >
-              查看增长控制台
             </Link>
           </div>
         </div>

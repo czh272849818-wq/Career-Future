@@ -129,18 +129,12 @@ const Navbar = () => {
                 )}
               </div>
             ) : (
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center">
                 <Link
                   to="/login"
-                  className="text-sm font-medium text-gray-300 hover:text-white transition-colors"
-                >
-                  登录
-                </Link>
-                <Link
-                  to="/register"
                   className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-sm font-medium rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all duration-200 shadow-lg"
                 >
-                  注册
+                  登录/注册
                 </Link>
               </div>
             )}
