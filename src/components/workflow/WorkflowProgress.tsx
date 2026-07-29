@@ -6,10 +6,10 @@ const WorkflowProgress = () => {
   const { currentStep } = useWorkflow();
 
   const steps = [
-    { id: 1, name: '职业测评', description: '了解你的能力和兴趣' },
-    { id: 2, name: '岗位推荐', description: '匹配最适合的职位' },
-    { id: 3, name: '简历优化', description: '针对性优化简历' },
-    { id: 4, name: '职业规划', description: '制定发展路径' }
+    { id: 1, name: '职业报告', description: '明确待验证方向' },
+    { id: 2, name: '岗位策略', description: '核验真实岗位要求' },
+    { id: 3, name: '简历优化', description: '建立投递证据' },
+    { id: 4, name: '面试训练', description: '演练真实问题' }
   ];
 
   return (

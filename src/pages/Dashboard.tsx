@@ -13,18 +13,15 @@ import {
   Video
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useAssessment } from '../contexts/AssessmentContext';
 import { useWorkflow } from '../contexts/WorkflowContext';
 import BackButton from '../components/ui/BackButton';
 
 const Dashboard = () => {
   const { user } = useAuth();
-  const { getAssessmentHistory } = useAssessment();
   const { assessmentData, recommendedJobs, selectedJob, optimizedResume, careerPlan } = useWorkflow();
 
-  const assessmentHistory = getAssessmentHistory();
-  const latestAssessment = assessmentHistory[0];
-  const hasAssessment = Boolean(latestAssessment || assessmentData.completedAt);
+  const careerProfile = assessmentData.careerProfile;
+  const hasAssessment = Boolean(careerProfile);
   const hasJobs = recommendedJobs.length > 0;
   const hasResumeSignal = Boolean(optimizedResume || assessmentData.resumeText || assessmentData.resume);
   const hasCareerPlan = Boolean(careerPlan);
@@ -34,7 +31,7 @@ const Dashboard = () => {
   const nextAction = !hasAssessment
     ? { title: '先完成职业测评', desc: '建立职业画像，后续岗位、简历和面试才有个性化依据。', href: '/assessment', cta: '开始测评' }
     : !hasJobs
-      ? { title: '生成岗位推荐', desc: '把测评结果转成可投递岗位池，筛出最值得投入的方向。', href: '/jobs', cta: '查看岗位' }
+      ? { title: '生成岗位策略', desc: '明确城市、经验和目标岗位后，验证最值得投入的方向。', href: '/jobs', cta: '制定策略' }
       : !selectedJob
         ? { title: '选择一个目标岗位', desc: '先聚焦一个岗位，才能做针对性简历和面试训练。', href: '/jobs', cta: '选择岗位' }
         : !hasResumeSignal
@@ -44,14 +41,14 @@ const Dashboard = () => {
   const growthSystem = [
     {
       title: '职业画像',
-      desc: hasAssessment ? '已形成测评基础' : '尚未开始',
+      desc: hasAssessment ? `主方向：${careerProfile?.primaryDirection.role}` : '尚未开始',
       href: '/assessment',
       icon: <Radar className="h-5 w-5" />,
       done: hasAssessment
     },
     {
       title: '岗位策略',
-      desc: hasJobs ? `${recommendedJobs.length} 个推荐岗位` : '等待生成岗位池',
+      desc: hasJobs ? `${recommendedJobs.length} 个待验证方向` : '等待生成岗位策略',
       href: '/jobs',
       icon: <Briefcase className="h-5 w-5" />,
       done: hasJobs
@@ -73,10 +70,10 @@ const Dashboard = () => {
   ];
 
   const evidence = [
-    latestAssessment ? `最近测评：${latestAssessment.completedAt.toLocaleDateString()}` : '暂无测评记录',
+    careerProfile ? `报告主方向：${careerProfile.primaryDirection.role}` : '暂无职业报告',
     selectedJob ? `目标岗位：${selectedJob.title}` : '尚未锁定目标岗位',
     assessmentData.major ? `专业背景：${assessmentData.major}` : '专业背景未填写',
-    assessmentData.traits?.length ? `核心标签：${assessmentData.traits.slice(0, 3).join('、')}` : '职业标签待生成'
+    careerProfile?.evidence.length ? `已有证据：${careerProfile.evidence.map(item => item.claim).slice(0, 2).join('、')}` : '求职证据待补充'
   ];
 
   return (
@@ -158,18 +155,18 @@ const Dashboard = () => {
                 </div>
               ))}
             </div>
-            {latestAssessment && (
+            {careerProfile?.gaps.length ? (
               <div className="mt-6">
-                <h3 className="mb-3 font-semibold text-white">最新优势标签</h3>
+                <h3 className="mb-3 font-semibold text-white">优先补齐</h3>
                 <div className="flex flex-wrap gap-2">
-                  {latestAssessment.traits.slice(0, 8).map((trait) => (
-                    <span key={trait} className="rounded-full bg-blue-500/15 px-3 py-1 text-sm text-blue-200">
-                      {trait}
+                  {careerProfile.gaps.slice(0, 3).map((gap) => (
+                    <span key={gap} className="rounded-full bg-blue-500/15 px-3 py-1 text-sm text-blue-200">
+                      {gap}
                     </span>
                   ))}
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
 
           <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-6">

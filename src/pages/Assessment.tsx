@@ -4,10 +4,8 @@ import {
   Brain, 
   ChevronRight, 
   ChevronLeft, 
-  Clock, 
   CheckCircle,
   ArrowRight,
-  Lightbulb,
   Users,
   Target,
   Upload,
@@ -46,12 +44,8 @@ const Assessment = () => {
   const [selectedAnswer, setSelectedAnswer] = useState<string>('');
   const [showResult, setShowResult] = useState(false);
   const [currentResult, setCurrentResult] = useState<any>(null);
-  const [showHint, setShowHint] = useState<string>('');
   const [industryValidationError, setIndustryValidationError] = useState('');
-  const [timeRemaining, setTimeRemaining] = useState(45);
-  const [isTimerActive, setIsTimerActive] = useState(false);
   const [showAdditionalInfo, setShowAdditionalInfo] = useState(false);
-  const [showOptimizedNotice, setShowOptimizedNotice] = useState(false);
   const [additionalData, setAdditionalData] = useState({
     resume: null as File | null,
     values: '',
@@ -61,11 +55,9 @@ const Assessment = () => {
   // AI analysis states
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [aiError, setAiError] = useState('');
+  const [analysisConsent, setAnalysisConsent] = useState(false);
   const [isEditingDirection, setIsEditingDirection] = useState(false);
   const [targetRoleDraft, setTargetRoleDraft] = useState('');
-  // 新增：题库优化提示
-  // 已在顶部声明 showOptimizedNotice，避免重复
-  
   // 新增：简历文本提取状态
   const [resumeText, setResumeText] = useState('');
   const [resumeExtracting, setResumeExtracting] = useState(false);
@@ -93,7 +85,7 @@ const Assessment = () => {
     }
     return resp;
   };
-  const { setCurrentStep, updateAssessmentData, selectJob } = useWorkflow();
+  const { assessmentData, setCurrentStep, updateAssessmentData } = useWorkflow();
   const {
     currentAssessment,
     currentQuestionIndex,
@@ -103,11 +95,9 @@ const Assessment = () => {
     nextQuestion,
     previousQuestion,
     completeAssessment,
-    getAssessmentHistory,
     getIndustryPositions,
-    // 新增：生成状态与题库来源
+    // 题库生成状态
     isGenerating,
-    lastQuestionSource,
     generationError
   } = useAssessment();
   const [selectedIndustryLocal, setSelectedIndustryLocal] = useState<string>('');
@@ -239,19 +229,16 @@ const Assessment = () => {
     return () => { cancelled = true; };
   }, [selectedIndustryLocal]);
 
-  // DeepSeek题库优化成功时，弹出短暂提示
-  useEffect(() => {
-    if (lastQuestionSource === 'deepseek') {
-      setShowOptimizedNotice(true);
-      const t = setTimeout(() => setShowOptimizedNotice(false), 2500);
-      return () => clearTimeout(t);
-    }
-  }, [lastQuestionSource]);
-
   const currentQuestion = currentAssessment[currentQuestionIndex];
   const progress = currentAssessment.length > 0 ? ((currentQuestionIndex + 1) / currentAssessment.length) * 100 : 0;
   const isLastQuestion = currentQuestionIndex === currentAssessment.length - 1;
-  const assessmentHistory = getAssessmentHistory();
+
+  const getNextReportVersion = () => {
+    const reports = assessmentData.careerReports || [];
+    const versions = reports.map(report => Number(report.version) || 0);
+    if (assessmentData.careerProfile) versions.push(Number(assessmentData.careerProfile.version) || 0);
+    return Math.max(0, ...versions) + 1;
+  };
 
   const buildFallbackCareerProfile = (): CareerProfile => {
     const role = selectedPositionLocal || (selectedIndustryLocal
@@ -266,6 +253,7 @@ const Assessment = () => {
 
     return {
       generatedAt: new Date().toISOString(),
+      version: getNextReportVersion(),
       headline: `先围绕「${role}」验证真实机会`,
       summary: '这是一份基于当前测评与补充信息生成的起点方案。先确认岗位要求，再用简历和面试反馈持续修正。',
       primaryDirection: {
@@ -331,6 +319,7 @@ const Assessment = () => {
 
     return {
       generatedAt: new Date().toISOString(),
+      version: fallback.version,
       headline: text(value.headline, 80) || fallback.headline,
       summary: text(value.summary, 180) || fallback.summary,
       primaryDirection,
@@ -341,26 +330,23 @@ const Assessment = () => {
     };
   };
 
-  // Timer effect
   useEffect(() => {
-    if (isTimerActive && timeRemaining > 0) {
-      const timer = setInterval(() => {
-        setTimeRemaining(prev => prev - 1);
-      }, 1000);
-      return () => clearInterval(timer);
-    } else if (timeRemaining === 0) {
-      setIsTimerActive(false);
-    }
-  }, [isTimerActive, timeRemaining]);
-
-  // Start timer when question loads
-  useEffect(() => {
-    if (currentQuestion && !showResult) {
-      setTimeRemaining(45);
-      setIsTimerActive(true);
+    if (currentQuestion && !showResult && !showAdditionalInfo) {
       setSelectedAnswer(answers[currentQuestion.id] || '');
     }
-  }, [currentQuestion, showResult, answers]);
+  }, [answers, currentQuestion, showAdditionalInfo, showResult]);
+
+  useEffect(() => {
+    if (selectedType || showResult || showAdditionalInfo || !assessmentData.careerProfile) return;
+    const storedProfile = assessmentData.careerProfile;
+    const profile = {
+      ...storedProfile,
+      version: storedProfile.version || 1
+    };
+    setCurrentResult({ careerProfile: profile, aiAnalysis: assessmentData.aiAnalysis || profile.summary });
+    setTargetRoleDraft(profile.primaryDirection.role);
+    setShowResult(true);
+  }, [assessmentData.aiAnalysis, assessmentData.careerProfile, selectedType, showAdditionalInfo, showResult]);
 
   const handleStartAssessment = (type: 'general' | 'industry') => {
     if (!isAuthenticated) {
@@ -588,13 +574,11 @@ const Assessment = () => {
     );
   }
 
-  const handleAnswerSelect = (answerId: string, hint?: string) => {
+  const handleAnswerSelect = (answerId: string) => {
     setSelectedAnswer(answerId);
     if (currentQuestion) {
       answerQuestion(currentQuestion.id, answerId);
     }
-    setShowHint(hint || '');
-    setIsTimerActive(false);
   };
 
   const handleNext = () => {
@@ -605,8 +589,6 @@ const Assessment = () => {
       setShowAdditionalInfo(true);
     } else {
       nextQuestion();
-      setSelectedAnswer('');
-      setShowHint('');
     }
   };
 
@@ -700,6 +682,7 @@ const Assessment = () => {
   };
 
   const handleCompleteAssessment = async () => {
+    if (!additionalData.major.trim() || !analysisConsent || aiAnalyzing) return;
     const { analysisText, resumeText: analyzedResumeText, profile } = await analyzeAdditionalInfo();
     const result = completeAssessment(analysisText || undefined);
     const resultWithProfile = { ...result, careerProfile: profile };
@@ -707,42 +690,31 @@ const Assessment = () => {
     setTargetRoleDraft(profile.primaryDirection.role);
     setIsEditingDirection(false);
     
-    // 更新工作流程数据（包含简历文本与测评详情）
+    const existingReports = assessmentData.careerReports || (assessmentData.careerProfile ? [assessmentData.careerProfile] : []);
+    const careerReports = [profile, ...existingReports.filter(report => report.version !== profile.version)].slice(0, 10);
+
+    // 报告与简历文本在登录后写入云端，原始文件不作为报告记录保存。
     updateAssessmentData({
       answers,
-      resume: additionalData.resume || undefined,
       resumeText: analyzedResumeText || undefined,
       values: additionalData.values,
       personality: additionalData.personality,
       major: additionalData.major,
       completedAt: new Date(),
       aiAnalysis: result.aiAnalysis,
-      scores: result.scores,
-      traits: result.traits,
-      recommendations: result.recommendations,
       industry: profile.primaryDirection.industry,
       targetPosition: profile.primaryDirection.role,
-      careerProfile: profile
+      careerProfile: profile,
+      careerReports,
+      scores: undefined,
+      traits: undefined,
+      recommendations: undefined
     });
      
      setShowResult(true);
    };
 
   const handleGoToJobRecommendations = () => {
-    const profile = currentResult?.careerProfile as CareerProfile | undefined;
-    if (profile) {
-      selectJob({
-        id: 'career-profile-primary',
-        title: profile.primaryDirection.role,
-        company: '目标岗位方向（非真实职位）',
-        matchScore: 0,
-        description: profile.primaryDirection.rationale,
-        requirements: profile.gaps,
-        salary: '以真实职位要求为准',
-        location: '待选择',
-        industry: profile.primaryDirection.industry
-      });
-    }
     setCurrentStep(2);
     navigate('/jobs');
   };
@@ -756,15 +728,26 @@ const Assessment = () => {
       primaryDirection: { ...profile.primaryDirection, role }
     };
     setCurrentResult({ ...currentResult, careerProfile: nextProfile });
-    updateAssessmentData({ careerProfile: nextProfile, targetPosition: role });
+    updateAssessmentData({
+      careerProfile: nextProfile,
+      careerReports: assessmentData.careerReports?.length
+        ? assessmentData.careerReports.map(report => report.version === nextProfile.version ? nextProfile : report)
+        : [nextProfile],
+      targetPosition: role
+    });
+    setIsEditingDirection(false);
+  };
+
+  const handleSelectReport = (version: number) => {
+    const report = (assessmentData.careerReports || []).find(item => item.version === version);
+    if (!report) return;
+    setCurrentResult({ careerProfile: report, aiAnalysis: report.summary });
+    setTargetRoleDraft(report.primaryDirection.role);
     setIsEditingDirection(false);
   };
 
   const handlePrevious = () => {
     previousQuestion();
-    setSelectedAnswer('');
-    setShowHint('');
-    setIsTimerActive(false);
   };
 
   const handleRestartAssessment = () => {
@@ -772,8 +755,7 @@ const Assessment = () => {
     setShowResult(false);
     setCurrentResult(null);
     setSelectedAnswer('');
-    setShowHint('');
-    setIsTimerActive(false);
+    setAnalysisConsent(false);
   };
 
   if (currentQuestion && !showResult && !showAdditionalInfo) {
@@ -785,24 +767,6 @@ const Assessment = () => {
           </div>
           <WorkflowProgress />
 
-          {/* 题库优化状态提示 */}
-          {(isGenerating || showOptimizedNotice) && (
-            <div className="mb-4">
-              {isGenerating && (
-                <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600/15 border border-blue-600/40 text-blue-200">
-                  <Bot className="h-4 w-4" />
-                  <span>正在生成AI题库，请稍候...</span>
-                </div>
-              )}
-              {showOptimizedNotice && (
-                <div className="mt-2 flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600/15 border border-green-600/40 text-green-200">
-                  <CheckCircle className="h-4 w-4" />
-                  <span>题库已优化为 AI 生成版本</span>
-                </div>
-              )}
-            </div>
-          )}
-
           <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-6 mb-6 border border-gray-700">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center space-x-3">
@@ -811,23 +775,7 @@ const Assessment = () => {
                   {selectedType === 'general' ? '通用职业测评' : '行业专项测评'}
                 </span>
               </div>
-              <div className="flex items-center space-x-3">
-                <span
-                  className={`px-2 py-1 rounded text-xs border ${
-                    lastQuestionSource === 'deepseek'
-                      ? 'bg-green-600/20 border-green-600 text-green-200'
-                      : 'bg-gray-600/20 border-gray-500 text-gray-300'
-                  }`}
-                >
-                  题库来源：{lastQuestionSource === 'deepseek' ? 'AI生成' : '本地默认'}
-                </span>
-                <div className="flex items-center space-x-2 text-gray-300">
-                  <Clock className="h-4 w-4" />
-                  <span className={`font-mono text-sm ${timeRemaining <= 10 ? 'text-red-600' : ''}`}>
-                    {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, '0')}
-                  </span>
-                </div>
-              </div>
+              <span className="text-sm text-gray-400">按实际情况选择即可</span>
             </div>
             
             <ProgressBar value={progress} className="mb-2" />
@@ -846,7 +794,7 @@ const Assessment = () => {
               {currentQuestion.options.map((option) => (
                 <button
                   key={option.id}
-                  onClick={() => handleAnswerSelect(option.id, option.hint)}
+                  onClick={() => handleAnswerSelect(option.id)}
                   className={`w-full text-left p-4 rounded-xl border-2 transition-all duration-200 backdrop-blur-sm ${
                     selectedAnswer === option.id
                       ? 'border-blue-500 bg-blue-500/20 shadow-md transform scale-105'
@@ -863,26 +811,11 @@ const Assessment = () => {
                         <CheckCircle className="h-4 w-4 text-white" />
                       )}
                     </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-white">{option.text}</p>
-                      {option.trait && (
-                        <p className="text-sm text-blue-600 mt-1">特质：{option.trait}</p>
-                      )}
-                    </div>
+                    <p className="flex-1 font-medium text-white">{option.text}</p>
                   </div>
                 </button>
               ))}
             </div>
-
-            {/* Hint Display */}
-            {showHint && (
-              <div className="mb-6 p-4 rounded-lg bg-purple-600/10 border border-purple-600/40">
-                <div className="flex items-center gap-2 text-purple-200">
-                  <Lightbulb className="h-4 w-4" />
-                  <span>提示：{showHint}</span>
-                </div>
-              </div>
-            )}
 
             {/* Navigation Buttons */}
             <div className="flex justify-between">
@@ -912,6 +845,9 @@ const Assessment = () => {
 
   if (showResult && currentResult) {
     const profile = (currentResult.careerProfile as CareerProfile | undefined) || buildFallbackCareerProfile();
+    const reports = assessmentData.careerReports?.length
+      ? assessmentData.careerReports
+      : assessmentData.careerProfile ? [assessmentData.careerProfile] : [profile];
     const readinessLabel: Record<CareerReadiness, string> = {
       ready_now: '可开始验证',
       build_evidence: '先补齐证据',
@@ -926,8 +862,24 @@ const Assessment = () => {
             <header className="border-b border-gray-700 px-6 py-7 sm:px-8">
               <div className="flex items-center gap-2 text-sm text-emerald-300">
                 <Sparkles className="h-4 w-4" />
-                职业决策报告
+                职业决策报告 · 第 {profile.version || 1} 版
               </div>
+              {reports.length > 1 && (
+                <label className="mt-4 block max-w-xs text-sm text-gray-400">
+                  报告版本
+                  <select
+                    value={profile.version || 1}
+                    onChange={(event) => handleSelectReport(Number(event.target.value))}
+                    className="mt-2 w-full border border-gray-600 bg-gray-900 px-3 py-2 text-white outline-none focus:border-blue-400"
+                  >
+                    {reports.map(report => (
+                      <option key={report.version} value={report.version}>
+                        第 {report.version || 1} 版 · {new Date(report.generatedAt).toLocaleDateString()}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <h1 className="mt-3 text-2xl font-bold text-white sm:text-3xl">{profile.headline}</h1>
               <p className="mt-3 max-w-3xl leading-7 text-gray-300">{profile.summary}</p>
             </header>
@@ -1013,7 +965,7 @@ const Assessment = () => {
                 onClick={handleGoToJobRecommendations}
                 className="mt-6 inline-flex items-center justify-center bg-emerald-400 px-5 py-3 font-semibold text-gray-950 transition hover:bg-emerald-300"
               >
-                确认目标岗位，查看岗位要求
+                进入岗位策略
                 <ArrowRight className="ml-2 h-4 w-4" />
               </button>
             </section>
@@ -1176,6 +1128,18 @@ const Assessment = () => {
                 />
               </div>
 
+              <label className="flex cursor-pointer items-start gap-3 border border-gray-700 bg-gray-900/50 p-4 text-sm leading-6 text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={analysisConsent}
+                  onChange={(event) => setAnalysisConsent(event.target.checked)}
+                  className="mt-1 h-4 w-4 accent-emerald-400"
+                />
+                <span>
+                  我同意将本页填写的信息及已提取的简历文本发送至 DeepSeek，用于生成职业决策报告。未勾选时不会发送。
+                </span>
+              </label>
+
 
               {(aiAnalyzing || aiError) && (
                 <div className="border border-gray-700 bg-gray-900/60 p-4 text-sm text-gray-300">
@@ -1196,120 +1160,13 @@ const Assessment = () => {
               <div className="flex gap-3">
                 <button
                   onClick={handleCompleteAssessment}
-                  disabled={aiAnalyzing || !additionalData.major}
+                  disabled={aiAnalyzing || !additionalData.major.trim() || !analysisConsent}
                   className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {aiAnalyzing ? '正在生成分析…' : '完成并生成分析'}
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (currentQuestion && !showResult && !showAdditionalInfo) {
-    return (
-      <div className="min-h-screen bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-3xl mx-auto">
-          <WorkflowProgress />
-
-          <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-6 mb-6 border border-gray-700">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                <Brain className="h-6 w-6 text-blue-600" />
-                <span className="font-semibold text-white">
-                  {selectedType === 'general' ? '通用职业测评' : '行业专项测评'}
-                </span>
-              </div>
-              <div className="flex items-center space-x-2 text-gray-300">
-                <Clock className="h-4 w-4" />
-                <span className={`font-mono text-sm ${timeRemaining <= 10 ? 'text-red-600' : ''}`}>
-                  {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, '0')}
-                </span>
-              </div>
-            </div>
-            
-            <ProgressBar value={progress} className="mb-2" />
-            <div className="flex justify-between text-sm text-gray-400">
-              <span>题目 {currentQuestionIndex + 1} / {currentAssessment.length}</span>
-              <span>{Math.round(progress)}% 完成</span>
-            </div>
-          </div>
-
-          <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-8 mb-6 border border-gray-700">
-            <h2 className="text-2xl font-bold text-white mb-8">
-              {currentQuestion.question}
-            </h2>
-
-            <div className="space-y-4 mb-8">
-              {currentQuestion.options.map((option) => (
-                <button
-                  key={option.id}
-                  onClick={() => handleAnswerSelect(option.id, option.hint)}
-                  className={`w-full text-left p-4 rounded-xl border-2 transition-all duration-200 backdrop-blur-sm ${
-                    selectedAnswer === option.id
-                      ? 'border-blue-500 bg-blue-500/20 shadow-md transform scale-105'
-                      : 'border-gray-600 hover:border-blue-400 hover:bg-blue-500/10'
-                  }`}
-                >
-                  <div className="flex items-start space-x-4">
-                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center mt-1 ${
-                      selectedAnswer === option.id
-                        ? 'border-blue-500 bg-blue-500'
-                        : 'border-gray-500'
-                    }`}>
-                      {selectedAnswer === option.id && (
-                        <CheckCircle className="h-4 w-4 text-white" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-white">{option.text}</p>
-                      {option.trait && (
-                        <p className="text-sm text-blue-600 mt-1">特质：{option.trait}</p>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {/* Hint Display */}
-            {showHint && (
-              <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-4 mb-6">
-                <div className="flex items-start space-x-3">
-                  <Lightbulb className="h-5 w-5 text-blue-600 mt-0.5" />
-                  <div>
-                    <h4 className="font-medium text-blue-300">特质提示</h4>
-                    <p className="text-blue-200 text-sm">{showHint}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Navigation Buttons */}
-
-            {/* Navigation Buttons */}
-            <div className="flex justify-between">
-              <button
-                onClick={handlePrevious}
-                disabled={currentQuestionIndex === 0}
-                className="inline-flex items-center px-4 py-2 text-gray-400 font-medium rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                上一题
-              </button>
-
-              <button
-                onClick={handleNext}
-                disabled={!selectedAnswer}
-                className="inline-flex items-center px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
-              >
-                {isLastQuestion ? '完成测评' : '下一题'}
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </button>
             </div>
           </div>
         </div>
@@ -1473,36 +1330,6 @@ const Assessment = () => {
           </div>
         </div>
 
-        {/* Assessment History */}
-        {isAuthenticated && assessmentHistory.length > 0 && (
-          <div className="mt-8 bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-8 border border-gray-700">
-            <h2 className="text-2xl font-bold text-white mb-6">最近的测评记录</h2>
-            <div className="space-y-4">
-              {assessmentHistory.slice(0, 3).map((result, index) => (
-                <div key={result.id} className="border border-gray-600 rounded-lg p-4 hover:border-blue-400 transition-colors">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="font-medium text-white">测评 #{assessmentHistory.length - index}</p>
-                      <p className="text-sm text-gray-400">完成时间：{result.completedAt.toLocaleString()}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {result.traits.map((trait, traitIndex) => (
-                        <span key={traitIndex} className="px-3 py-1 bg-blue-500/20 text-blue-300 rounded-full text-xs font-medium">
-                          {trait}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  {result.aiAnalysis && (
-                    <p className="mt-3 text-sm text-gray-400">
-                      AI分析摘要：{result.aiAnalysis.slice(0, 160)}{result.aiAnalysis.length > 160 ? '…' : ''}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

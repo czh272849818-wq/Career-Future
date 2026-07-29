@@ -55,9 +55,9 @@ interface InterviewResult {
   isMultiRound: boolean;
   rounds: number;
   completedAt: Date;
-  overallScore: number;
-  scores: Record<string, number>;
-  stageScores?: Record<string, number>;
+  completedStages: string[];
+  evidenceUsed: string[];
+  missingEvidence: string[];
   feedback: string[];
   improvements: string[];
   answerRecords: string[];
@@ -105,8 +105,8 @@ const InterviewSimulation = () => {
   const [isMultiRound, setIsMultiRound] = useState(false);
   
   // 设备状态
-  const [isCameraOn, setIsCameraOn] = useState(true);
-  const [isMicOn, setIsMicOn] = useState(true);
+  const [isCameraOn, setIsCameraOn] = useState(false);
+  const [isMicOn, setIsMicOn] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [cameraStatus, setCameraStatus] = useState<'idle' | 'active' | 'error'>('idle');
   const [cameraError, setCameraError] = useState('');
@@ -118,6 +118,7 @@ const InterviewSimulation = () => {
   const [llmQuestions, setLlmQuestions] = useState<Record<string, string[]>>({});
   const [questionPacks, setQuestionPacks] = useState<Partial<Record<'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements', InterviewQuestionPack>>>({});
   const [generating, setGenerating] = useState(false);
+  const [aiConsent, setAiConsent] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [setupError, setSetupError] = useState('');
   const [selectedIndustryLocal, setSelectedIndustryLocal] = useState(selectedJob?.industry || '');
@@ -176,12 +177,10 @@ const InterviewSimulation = () => {
     const parts = [
       selectedIndustryLocal ? `行业：${selectedIndustryLocal}` : '',
       selectedPositionLocal ? `岗位：${selectedPositionLocal}` : '',
-      selectedJob?.company ? `目标公司：${selectedJob.company}` : '',
       jobDescription.trim() ? `岗位介绍：${jobDescription.trim()}` : '',
       sectionText.length ? `岗位结构：\n${sectionText.join('\n\n')}` : '',
       careerProfile ? `职业决策：主方向=${careerProfile.primaryDirection.role}\n已有证据=${careerProfile.evidence.map(item => item.claim).join('、')}\n待补齐=${careerProfile.gaps.join('、')}` : '',
-      assessmentData?.aiAnalysis ? `候选人画像：${String(assessmentData.aiAnalysis).slice(0, 500)}` : '',
-      assessmentData?.traits?.length ? `候选人优势标签：${assessmentData.traits.slice(0, 5).join('、')}` : ''
+      assessmentData?.aiAnalysis ? `候选人报告摘要：${String(assessmentData.aiAnalysis).slice(0, 500)}` : ''
     ].filter(Boolean);
     return parts.join('\n');
   };
@@ -279,26 +278,6 @@ const InterviewSimulation = () => {
     return splitQuestionsIntoPack(questions.slice(0, count), count);
   };
 
-  const calculateStageScores = (
-    type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements' | null,
-    allQuestions: string[],
-    allAnswers: Record<string, string>
-  ) => {
-    const keys = allQuestions.map((_, index) => `${type || 'single'}_${index}`);
-    const scoreFor = (start: number, end: number) => {
-      const subset = keys.slice(start, end);
-      const answered = subset.filter((key) => Boolean(allAnswers[key]));
-      return subset.length ? Math.max(55, Math.min(95, Math.round((answered.length / subset.length) * 100))) : 70;
-    };
-    const dist = getQuestionDistribution(allQuestions.length || 8);
-    return {
-      '开场题': scoreFor(0, dist.opening),
-      '行为题': scoreFor(dist.opening, dist.opening + dist.behavior),
-      '深挖题': scoreFor(dist.opening + dist.behavior, dist.opening + dist.behavior + dist.deep),
-      '反问题': scoreFor(dist.opening + dist.behavior + dist.deep, allQuestions.length)
-    };
-  };
-
   const getQuestionStageLabel = (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements' | null, index: number) => {
     if (!type) return '面试题';
     const pack = getActiveQuestionPack(type);
@@ -383,7 +362,7 @@ const InterviewSimulation = () => {
     {
       id: 'comprehensive',
       name: '综合面试',
-      description: '个人基本素养、行业知识、岗位需求全面评估，支持多轮面试和群体面试',
+      description: '围绕背景、行业与岗位问题完成一轮结构化训练，支持多轮和群体面试',
       icon: <Users className="h-6 w-6" />,
       color: 'from-blue-500 to-cyan-500',
       duration: '25-35分钟',
@@ -394,7 +373,7 @@ const InterviewSimulation = () => {
     {
       id: 'basic_quality',
       name: '基本素养面试',
-      description: '沟通表达、逻辑思维、团队协作等基础能力评估',
+      description: '练习沟通表达、逻辑梳理与团队协作相关问题',
       icon: <Brain className="h-6 w-6" />,
       color: 'from-purple-500 to-pink-500',
       duration: '15-20分钟',
@@ -596,6 +575,7 @@ const InterviewSimulation = () => {
   const initializeCamera = async () => {
     try {
       setCameraError('');
+      setMicError('');
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: true, 
         audio: true 
@@ -605,16 +585,27 @@ const InterviewSimulation = () => {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
+      setIsCameraOn(true);
+      setIsMicOn(true);
       setCameraStatus('active');
+      setMicStatus('active');
     } catch (error) {
       console.error('无法访问摄像头:', error);
       setCameraStatus('error');
+      setMicStatus('error');
+      setIsCameraOn(false);
+      setIsMicOn(false);
       setCameraError('摄像头或麦克风权限未开启，请允许浏览器访问后重试。若你只想练回答，也可直接输入文本。');
+      setMicError('麦克风未获得权限；可重新检测或改用文字输入。');
     }
   };
 
   const toggleCamera = () => {
     const stream = previewStreamRef.current || (videoRef.current?.srcObject as MediaStream | null);
+    if (!stream) {
+      void initializeCamera();
+      return;
+    }
     if (stream) {
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
@@ -627,6 +618,10 @@ const InterviewSimulation = () => {
 
   const toggleMic = () => {
     const stream = previewStreamRef.current || (videoRef.current?.srcObject as MediaStream | null);
+    if (!stream) {
+      void initializeCamera();
+      return;
+    }
     if (stream) {
       const audioTrack = stream.getAudioTracks()[0];
       if (audioTrack) {
@@ -747,6 +742,9 @@ const InterviewSimulation = () => {
     recordingStreamRef.current = null;
     mediaRecorderRef.current = null;
     setIsRecording(false);
+    setIsCameraOn(false);
+    setCameraStatus('idle');
+    setIsMicOn(false);
     setMicStatus('idle');
   };
 
@@ -798,6 +796,10 @@ const InterviewSimulation = () => {
         setSetupError('请至少补充岗位介绍或一项职责/技能，再开始面试。');
         return;
       }
+    }
+    if (!aiConsent) {
+      setSetupError('请先确认 AI 数据处理授权，才会发送岗位与职业报告信息生成题目。');
+      return;
     }
     setSetupError('');
     
@@ -973,47 +975,42 @@ const InterviewSimulation = () => {
     const followupAnswerCount = Object.keys(followupAnswers).length;
     const totalAnsweredCount = Object.values(allAnswers).filter(Boolean).length;
     const answeredValues = Object.values(allAnswers).filter(Boolean);
-    const averageLength = answeredValues.length
-      ? Math.round(answeredValues.reduce((sum, item) => sum + item.length, 0) / answeredValues.length)
-      : 0;
-    const completionRate = questions.length ? Math.round((totalAnsweredCount / (questions.length * 2)) * 100) : 70;
-    const evidenceScore = Math.max(0, Math.min(25, Math.round(averageLength / 12)));
-    const targetBonus = selectedJob ? 8 : 0;
-    const assessmentBonus = assessmentData?.traits?.length ? 6 : 0;
-    const overallScore = Math.max(55, Math.min(95, Math.round(completionRate * 0.45 + evidenceScore + 20 + targetBonus + assessmentBonus)));
-    const stageScores = calculateStageScores(interviewType, questions, allAnswers);
+    const answeredStages = Array.from(new Set(
+      questions
+        .map((_, index) => ({ key: `${interviewType || 'single'}_${index}`, stage: getQuestionStageLabel(interviewType, index) }))
+        .filter(item => Boolean(allAnswers[item.key]))
+        .map(item => item.stage)
+    ));
+    const evidenceUsed = [
+      ...(selectedJob ? [`目标岗位方向：${selectedJob.title}`] : []),
+      ...(assessmentData.careerProfile ? assessmentData.careerProfile.evidence.slice(0, 2).map(item => `职业报告证据：${item.claim}`) : []),
+      ...(jobDescription.trim() ? ['已使用岗位介绍与职责信息'] : [])
+    ];
+    const missingEvidence = [
+      ...(selectedJob?.gaps || assessmentData.careerProfile?.gaps || []).slice(0, 3),
+      ...(answeredValues.some(value => /\d+|%|万|千|增长|提升|降低|节省/.test(value)) ? [] : ['回答中尚未出现可核验的量化结果或范围'])
+    ];
 
     const result: InterviewResult = {
       type: interviewType,
       isMultiRound,
       rounds: isMultiRound ? interviewRounds.length : 1,
       completedAt: new Date(),
-      overallScore,
-      stageScores,
-      scores: {
-        '基本素养': Math.max(55, Math.min(95, overallScore + 2)),
-        '沟通表达': Math.max(55, Math.min(95, completionRate + 5)),
-        '行业认知': Math.max(55, Math.min(95, overallScore - (selectedJob ? 0 : 8))),
-        '岗位匹配': Math.max(55, Math.min(95, overallScore + targetBonus - 4)),
-        '发展潜力': Math.max(55, Math.min(95, overallScore + assessmentBonus - 3)),
-        ...(isMultiRound && interviewRounds.some(r => r.type === 'group') ? {
-          '团队协作': Math.max(55, Math.min(95, overallScore - 2)),
-          '领导能力': Math.max(55, Math.min(95, overallScore - 5))
-        } : {})
-      },
+      completedStages: answeredStages,
+      evidenceUsed,
+      missingEvidence,
       feedback: [
-        selectedJob ? `回答已围绕「${selectedJob.title}」展开，岗位聚焦度更高` : '建议先选择目标岗位，再进行针对性面试训练',
-        `本次记录 ${mainAnswerCount}/${questions.length || 1} 个主答，${followupAnswerCount}/${questions.length || 1} 个追问，平均回答长度 ${averageLength || 0} 字`,
-        assessmentData?.traits?.length ? `已结合职业画像优势：${assessmentData.traits.slice(0, 3).join('、')}` : '职业画像信息不足，建议先完成测评',
-        '能完成完整面试流程，具备继续迭代表达素材的基础',
-        `四段表现：开场 ${stageScores['开场题']} / 行为 ${stageScores['行为题']} / 深挖 ${stageScores['深挖题']} / 反问 ${stageScores['反问题']}`,
+        selectedJob ? `本次回答围绕「${selectedJob.title}」岗位方向展开` : '建议先锁定一个岗位方向，再进行针对性面试训练',
+        `本次记录 ${mainAnswerCount} 个主答、${followupAnswerCount} 个追问，共 ${totalAnsweredCount} 条有效回答`,
+        answeredStages.length ? `已完成环节：${answeredStages.join('、')}` : '本次未留下可用回答记录',
+        assessmentData.careerProfile ? '已使用职业决策报告中的已有证据与待补齐项' : '尚未加载职业决策报告，后续可补充后再练习',
         ...(isMultiRound && interviewRounds.some(r => r.type === 'group') ? [
           '多轮/群面流程已覆盖，后续应重点训练倾听、总结和推动共识'
         ] : [])
       ],
       improvements: [
         '每个核心问题准备一个STAR案例，避免只讲观点不讲证据',
-        selectedJob ? `补充 ${selectedJob.company} 与岗位业务的调研信息` : '先锁定一个目标岗位和公司，再训练高频问题',
+        selectedJob ? `补充「${selectedJob.title}」真实 JD 与业务场景的调研信息` : '先锁定一个目标岗位方向，再训练高频问题',
         '回答项目经历时突出个人动作、关键决策和量化结果',
         '准备3个反问问题，验证岗位目标、团队协作和成功标准',
         ...(isMultiRound && interviewRounds.some(r => r.type === 'group') ? [
@@ -1052,18 +1049,20 @@ const InterviewSimulation = () => {
     const lines = [
       '职向未来 Pro - 面试训练报告',
       `生成时间：${interviewResult.completedAt.toLocaleString()}`,
-      `目标岗位：${selectedJob ? `${selectedJob.company} / ${selectedJob.title}` : '未选择'}`,
-      `总体评分：${interviewResult.overallScore}`,
+      `目标岗位：${selectedJob ? `${selectedJob.industry || '未指定行业'} / ${selectedJob.title}` : '未选择'}`,
       '',
       '回答记录：',
       ...Object.entries(answers).map(([key, value]) => `主答 ${key}: ${value}`),
       ...Object.entries(followupAnswers).map(([key, value]) => `追问 ${key}: ${value}`),
       '',
-      '四段表现：',
-      ...Object.entries(interviewResult.stageScores || {}).map(([name, score]) => `- ${name}: ${score}`),
+      '已完成环节：',
+      ...interviewResult.completedStages.map(stage => `- ${stage}`),
       '',
-      '分项评分：',
-      ...Object.entries(interviewResult.scores).map(([name, score]) => `- ${name}: ${score}`),
+      '已使用证据：',
+      ...interviewResult.evidenceUsed.map(item => `- ${item}`),
+      '',
+      '待补齐证据：',
+      ...interviewResult.missingEvidence.map(item => `- ${item}`),
       '',
       '表现亮点：',
       ...interviewResult.feedback.map(item => `- ${item}`),
@@ -1084,12 +1083,6 @@ const InterviewSimulation = () => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const getScoreColor = (score: number) => {
-    if (score >= 85) return 'text-green-400';
-    if (score >= 70) return 'text-yellow-400';
-    return 'text-red-400';
   };
 
   // 添加新轮次
@@ -1410,55 +1403,23 @@ const InterviewSimulation = () => {
             </div>
           </div>
 
-          {/* 总体评分 */}
           <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-8 mb-8 border border-gray-700">
-            <h2 className="text-2xl font-bold text-white mb-6">综合评分</h2>
-            
-            <div className="text-center mb-8">
-              <div className={`text-6xl font-bold mb-4 ${getScoreColor(interviewResult.overallScore)}`}>
-                {interviewResult.overallScore}
+            <h2 className="text-2xl font-bold text-white mb-6">本次训练记录</h2>
+            <div className="grid gap-5 md:grid-cols-3">
+              <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4">
+                <p className="text-sm font-medium text-emerald-200">已完成环节</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {interviewResult.completedStages.length ? interviewResult.completedStages.map(stage => <span key={stage} className="border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">{stage}</span>) : <span className="text-sm text-gray-400">未记录</span>}
+                </div>
               </div>
-              <p className="text-gray-400 text-lg">总体表现评分</p>
-            </div>
-
-            {interviewResult.stageScores && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-                {Object.entries(interviewResult.stageScores).map(([name, score]) => (
-                  <div key={name} className="rounded-2xl border border-gray-700 bg-gray-900/60 p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-gray-400">{name}</p>
-                        <p className={`mt-1 text-2xl font-bold ${getScoreColor(score)}`}>{score}</p>
-                      </div>
-                      <div className="h-12 w-12 rounded-full border border-gray-700 bg-gradient-to-br from-purple-600/20 to-blue-600/20" />
-                    </div>
-                    <div className="mt-3 h-2 w-full rounded-full bg-gray-700">
-                      <div
-                        className="h-2 rounded-full bg-gradient-to-r from-blue-400 to-purple-400 transition-all duration-500"
-                        style={{ width: `${score}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
+              <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4">
+                <p className="text-sm font-medium text-blue-200">已使用证据</p>
+                <ul className="mt-3 space-y-2 text-sm leading-6 text-gray-300">{interviewResult.evidenceUsed.length ? interviewResult.evidenceUsed.map(item => <li key={item}>{item}</li>) : <li>暂无</li>}</ul>
               </div>
-            )}
-
-            {/* 各项评分 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {Object.entries(interviewResult.scores as Record<string, number>).map(([skill, score], index) => (
-  <div key={index} className="text-center">
-    <div className={`text-2xl font-bold mb-2 ${getScoreColor(score)}`}>
-      {score}
-    </div>
-    <p className="text-gray-400">{skill}</p>
-    <div className="mt-2 w-full bg-gray-700 rounded-full h-2">
-      <div
-        className="bg-gradient-to-r from-blue-400 to-purple-400 h-2 rounded-full transition-all duration-500"
-        style={{ width: `${score}%` }}
-      ></div>
-    </div>
-  </div>
-))}
+              <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4">
+                <p className="text-sm font-medium text-amber-200">待补齐证据</p>
+                <ul className="mt-3 space-y-2 text-sm leading-6 text-gray-300">{interviewResult.missingEvidence.length ? interviewResult.missingEvidence.map(item => <li key={item}>{item}</li>) : <li>暂无</li>}</ul>
+              </div>
             </div>
           </div>
 
@@ -1622,7 +1583,6 @@ const InterviewSimulation = () => {
                 <div className="flex justify-center space-x-4 mt-6">
                   <button
                     onClick={toggleCamera}
-                    disabled={cameraStatus === 'error'}
                     className={`p-3 rounded-full transition-colors ${
                       isCameraOn 
                         ? 'bg-gray-700 hover:bg-gray-600 text-white' 
@@ -1634,7 +1594,6 @@ const InterviewSimulation = () => {
                   
                   <button
                     onClick={toggleMic}
-                    disabled={micStatus === 'error'}
                     className={`p-3 rounded-full transition-colors ${
                       isMicOn 
                         ? 'bg-gray-700 hover:bg-gray-600 text-white' 
@@ -1786,7 +1745,7 @@ const InterviewSimulation = () => {
                     onChange={(e) => setCurrentAnswer(e.target.value)}
                     onBlur={saveCurrentAnswer}
                     rows={5}
-                    placeholder="点击“开始回答”可尝试语音转文字；也可以直接输入你的回答。系统会基于真实回答生成评分与报告。"
+                    placeholder="点击“开始回答”可尝试语音转文字；也可以直接输入。完成后将生成证据复盘与训练建议。"
                     className="w-full rounded-xl border border-gray-600 bg-gray-900/80 p-4 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                   />
                   {speechStatus && (
@@ -1951,7 +1910,7 @@ const InterviewSimulation = () => {
               <div className="text-right">
                 <p className="text-gray-400 text-sm">目标岗位</p>
                 <p className="text-white font-semibold">{selectedJob.title}</p>
-                <p className="text-gray-300 text-sm">{selectedJob.company}</p>
+                <p className="text-gray-300 text-sm">{selectedJob.industry || '待验证方向'}</p>
               </div>
             )}
           </div>
@@ -2067,6 +2026,10 @@ const InterviewSimulation = () => {
                     : '选择行业和岗位后，系统会自动生成针对性的面试题。'}
                 </p>
               </div>
+              <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-gray-700 bg-gray-900/60 p-4 text-sm leading-6 text-gray-300">
+                <input type="checkbox" checked={aiConsent} onChange={(event) => setAiConsent(event.target.checked)} className="mt-1 h-4 w-4 accent-purple-400" />
+                <span>我同意将岗位介绍、职责信息及职业报告发送至 DeepSeek，用于生成针对性面试题。未勾选时不会发送。</span>
+              </label>
             </div>
 
             <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-8 border border-gray-700">
@@ -2135,7 +2098,7 @@ const InterviewSimulation = () => {
                     
                     <button
                       onClick={() => startInterview(type.id as any)}
-                      disabled={!(selectedIndustryLocal && selectedPositionLocal) && type.id !== 'basic_quality'}
+                      disabled={!aiConsent || (!(selectedIndustryLocal && selectedPositionLocal) && type.id !== 'basic_quality')}
                       className="w-full flex items-center justify-center text-blue-400 text-sm font-medium group-hover:text-blue-300 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {type.id === 'basic_quality' ? '开始基础面试' : '开始针对性面试'}
@@ -2165,12 +2128,14 @@ const InterviewSimulation = () => {
                       <button
                         onClick={toggleCamera}
                         className={`p-2 rounded-full ${isCameraOn ? 'bg-green-600' : 'bg-red-600'} text-white`}
+                        title={cameraStatus === 'error' ? '重新检测摄像头' : '切换摄像头'}
                       >
                         {isCameraOn ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}
                       </button>
                       <button
                         onClick={toggleMic}
                         className={`p-2 rounded-full ${isMicOn ? 'bg-green-600' : 'bg-red-600'} text-white`}
+                        title={micStatus === 'error' ? '重新检测麦克风' : '切换麦克风'}
                       >
                         {isMicOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
                       </button>
@@ -2188,9 +2153,9 @@ const InterviewSimulation = () => {
                         <span className="text-gray-300">摄像头</span>
                       </div>
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        isCameraOn ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'
+                        cameraStatus === 'active' ? 'bg-green-900/30 text-green-400' : cameraStatus === 'error' ? 'bg-red-900/30 text-red-400' : 'bg-gray-700 text-gray-300'
                       }`}>
-                        {isCameraOn ? '正常' : '关闭'}
+                        {cameraStatus === 'active' ? '已开启' : cameraStatus === 'error' ? '权限异常' : '未检测'}
                       </span>
                     </div>
                     
@@ -2200,9 +2165,9 @@ const InterviewSimulation = () => {
                         <span className="text-gray-300">麦克风</span>
                       </div>
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        isMicOn ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'
+                        micStatus === 'active' ? 'bg-green-900/30 text-green-400' : micStatus === 'error' ? 'bg-red-900/30 text-red-400' : 'bg-gray-700 text-gray-300'
                       }`}>
-                        {isMicOn ? '正常' : '关闭'}
+                        {micStatus === 'active' ? '已开启' : micStatus === 'error' ? '权限异常' : '未检测'}
                       </span>
                     </div>
                     
@@ -2262,38 +2227,30 @@ const InterviewSimulation = () => {
               </div>
             </div>
 
-            {/* 评估维度 */}
+            {/* 训练重点 */}
             <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-gray-700">
-              <h2 className="text-xl font-bold text-white mb-4">评估维度</h2>
+              <h2 className="text-xl font-bold text-white mb-4">训练重点</h2>
               
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-300">基本素养</span>
-                  <Award className="h-4 w-4 text-yellow-400" />
+                  <span className="text-gray-300">用 STAR 讲清楚个人动作与结果</span>
+                  <CheckCircle className="h-4 w-4 text-emerald-400" />
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-300">沟通表达</span>
-                  <Award className="h-4 w-4 text-yellow-400" />
+                  <span className="text-gray-300">用真实 JD 校准岗位理解</span>
+                  <CheckCircle className="h-4 w-4 text-emerald-400" />
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-300">行业认知</span>
-                  <Award className="h-4 w-4 text-yellow-400" />
+                  <span className="text-gray-300">准备可以核验的项目证据</span>
+                  <CheckCircle className="h-4 w-4 text-emerald-400" />
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-300">岗位匹配</span>
-                  <Award className="h-4 w-4 text-yellow-400" />
+                  <span className="text-gray-300">练习追问与反问的逻辑</span>
+                  <CheckCircle className="h-4 w-4 text-emerald-400" />
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-300">发展潜力</span>
-                  <Award className="h-4 w-4 text-yellow-400" />
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-300">团队协作</span>
-                  <Award className="h-4 w-4 text-yellow-400" />
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-300">领导能力</span>
-                  <Award className="h-4 w-4 text-yellow-400" />
+                  <span className="text-gray-300">根据缺失证据安排下一轮练习</span>
+                  <CheckCircle className="h-4 w-4 text-emerald-400" />
                 </div>
               </div>
             </div>

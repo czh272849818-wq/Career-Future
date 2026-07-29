@@ -33,10 +33,10 @@ type ResumeDraft = {
 
 type ResumeHistoryItem = {
   optimizedAt?: string;
-  targetJob?: { title?: string; company?: string } | null;
+  targetJob?: { title?: string; industry?: string } | null;
   draft?: ResumeDraft;
   comparison?: { before?: string; after?: string; changedPoints?: string[] };
-  analysisResult?: { competitiveScore?: number; keywordScore?: number; evidenceScore?: number };
+  analysisResult?: { matchedKeywords?: string[]; missingKeywords?: string[]; evidenceSignals?: string[] };
   originalFileName?: string;
 };
 
@@ -155,7 +155,7 @@ const replaceParagraphBlock = (block: string, text: string, fontFamily: string) 
   return `<w:p>${pPr}${run}</w:p>`;
 };
 
-const buildChineseTemplateLines = (draft: ResumeDraft, user: { email?: string; phone?: string } | null, selectedJob: { title?: string; company?: string; location?: string } | null) => {
+const buildChineseTemplateLines = (draft: ResumeDraft, user: { email?: string; phone?: string } | null, selectedJob: { title?: string; industry?: string; city?: string } | null) => {
   const skillLine = draft.skills.slice(0, 6).join(' / ') || draft.keywords.slice(0, 6).join(' / ') || '岗位匹配 / 项目表达 / 量化结果';
   const exp = draft.experience.length ? draft.experience : [
     '将经历改写为“动作 + 方法 + 结果”。',
@@ -175,7 +175,7 @@ const buildChineseTemplateLines = (draft: ResumeDraft, user: { email?: string; p
   return [
     '',
     draft.headline || `${selectedJob?.title || '目标岗位'}候选人`,
-    `电话：${user?.phone || '待补充'}    邮箱：${user?.email || '待补充'}    地点：${selectedJob?.location || '全国'}`,
+    `电话：${user?.phone || '待补充'}    邮箱：${user?.email || '待补充'}    地点：${selectedJob?.city || '待补充'}`,
     '教育背景',
     edu[0] || '',
     edu[1] || '',
@@ -183,11 +183,11 @@ const buildChineseTemplateLines = (draft: ResumeDraft, user: { email?: string; p
     '',
     '',
     '实习经历',
-    `${selectedJob?.company || '公司名称'} ｜ ${selectedJob?.title || '岗位名称'} ｜ 时间`,
+    `${selectedJob?.industry || '目标行业'} ｜ ${selectedJob?.title || '岗位名称'} ｜ 时间`,
     exp[0] || '',
     exp[1] || '',
     exp[2] || '',
-    `${selectedJob?.company || '公司名称'} ｜ ${selectedJob?.title || '岗位名称'} ｜ 时间`,
+    `${selectedJob?.industry || '目标行业'} ｜ ${selectedJob?.title || '岗位名称'} ｜ 时间`,
     exp[3] || exp[0] || '',
     exp[4] || exp[1] || '',
     exp[5] || exp[2] || '',
@@ -212,7 +212,7 @@ const buildChineseTemplateLines = (draft: ResumeDraft, user: { email?: string; p
   ];
 };
 
-const buildEnglishTemplateLines = (draft: ResumeDraft, user: { email?: string; phone?: string } | null, selectedJob: { title?: string; company?: string; location?: string } | null) => {
+const buildEnglishTemplateLines = (draft: ResumeDraft, user: { email?: string; phone?: string } | null, selectedJob: { title?: string; industry?: string; city?: string } | null) => {
   const exp = draft.experience.length ? draft.experience : [
     'Reframed responsibilities into action, method, and impact.',
     'Kept only evidence that supports the target role.',
@@ -226,7 +226,7 @@ const buildEnglishTemplateLines = (draft: ResumeDraft, user: { email?: string; p
   const skills = draft.skills.length ? draft.skills : ['Problem Solving', 'Execution', 'Communication'];
   return [
     draft.headline || 'YOUR NAME',
-    `Email: ${user?.email || 'TBD'} | Phone: ${user?.phone || 'TBD'} | Location: ${selectedJob?.location || 'TBD'}`,
+    `Email: ${user?.email || 'TBD'} | Phone: ${user?.phone || 'TBD'} | Location: ${selectedJob?.city || 'TBD'}`,
     'Education',
     'University | City, State',
     'Degree in Major | Expected Month Year',
@@ -239,7 +239,7 @@ const buildEnglishTemplateLines = (draft: ResumeDraft, user: { email?: string; p
     `Software Skills: ${skills.slice(3, 6).join(', ') || skills.join(', ')}`,
     'Language Skills: Chinese, English',
     'Work Experience',
-    `${selectedJob?.company || 'Company Name'} | ${selectedJob?.title || 'Job Title'}`,
+    `${selectedJob?.industry || 'Target Industry'} | ${selectedJob?.title || 'Job Title'}`,
     'Month Year - Month Year',
     exp[0] || '',
     exp[1] || '',
@@ -276,7 +276,7 @@ const buildTemplateResumeDocx = async (
   templateType: TemplateType,
   draft: ResumeDraft,
   user: { email?: string; phone?: string } | null,
-  selectedJob: { title?: string; company?: string; location?: string } | null
+  selectedJob: { title?: string; industry?: string; city?: string } | null
 ) => {
   const templateResp = await fetch(TEMPLATE_URLS[templateType]);
   if (!templateResp.ok) {
@@ -321,15 +321,14 @@ const ResumeEnhancement = () => {
   const [copyState, setCopyState] = useState<'idle' | 'done'>('idle');
   const [resumeHistory, setResumeHistory] = useState<ResumeHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [analysisConsent, setAnalysisConsent] = useState(false);
 
   useEffect(() => {
     if (!selectedJob) return;
-    setJobDescription(`职位：${selectedJob.title}
-公司：${selectedJob.company}
-职位描述：${selectedJob.description}
-任职要求：${selectedJob.requirements.join('、')}
-薪资范围：${selectedJob.salary}
-工作地点：${selectedJob.location}`);
+    setJobDescription(`职位方向：${selectedJob.title}
+行业：${selectedJob.industry || '未指定'}
+方向说明：${selectedJob.description}
+真实 JD 核验重点：${selectedJob.requirements.join('、')}`);
   }, [selectedJob]);
 
   useEffect(() => {
@@ -398,13 +397,13 @@ const ResumeEnhancement = () => {
   const buildFallbackDraft = (resumeText: string, targetKeywords: string[]): ResumeDraft => {
     const topKeywords = targetKeywords.slice(0, 6);
     const focus = selectedJob?.title || '目标岗位';
-    const company = selectedJob?.company || '目标公司';
+    const industry = selectedJob?.industry || '目标行业';
     const summary = selectedJob
       ? `面向${focus}岗位，擅长把复杂工作转成可量化结果，能够围绕${topKeywords.slice(0, 3).join('、') || '岗位要求'}快速产出业务价值。`
       : '围绕目标岗位重写的简历概要，突出量化成果、岗位关键词和可验证能力。';
 
     return {
-      headline: `${focus} | ${company} | 结果导向型候选人`,
+      headline: `${focus} | ${industry} | 结果导向型候选人`,
       summary,
       education: [
         '教育经历：按“学校 / 专业 / 学位 / 时间”填写。',
@@ -434,7 +433,7 @@ const ResumeEnhancement = () => {
       copyText: [
         `姓名｜${focus}候选人`,
         `目标岗位：${focus}`,
-        `当前标题：${focus} | ${company} | 结果导向型候选人`,
+        `当前标题：${focus} | ${industry} | 结果导向型候选人`,
         '',
         '个人简介',
         summary,
@@ -496,6 +495,7 @@ const ResumeEnhancement = () => {
   };
 
   const handleAnalyze = async () => {
+    if (!analysisConsent || isProcessing) return;
     setIsProcessing(true);
     setCopyState('idle');
 
@@ -509,8 +509,7 @@ const ResumeEnhancement = () => {
         selectedJob?.requirements?.join(' '),
         careerProfile?.primaryDirection.role,
         careerProfile?.evidence.map(item => item.claim).join(' '),
-        careerProfile?.gaps.join(' '),
-        assessmentData.traits?.join(' ')
+        careerProfile?.gaps.join(' ')
       ].filter(Boolean).join('\n');
 
       const resumeNorm = normalizeText(resumeText);
@@ -518,10 +517,12 @@ const ResumeEnhancement = () => {
       const matchedKeywords = jdKeywords.filter(keyword => resumeNorm.includes(keyword.toLowerCase()));
       const missingKeywords = jdKeywords.filter(keyword => !resumeNorm.includes(keyword.toLowerCase())).slice(0, 12);
 
-      const keywordScore = jdKeywords.length ? Math.round((matchedKeywords.length / jdKeywords.length) * 100) : 55;
-      const evidenceScore = /\d+|%|万|千|增长|提升|降低|节省|用户|收入|转化|留存/.test(resumeText) ? 82 : 52;
-      const focusScore = selectedJob ? 88 : 64;
-      const competitiveScore = Math.max(35, Math.min(96, Math.round(keywordScore * 0.4 + evidenceScore * 0.35 + focusScore * 0.25)));
+      const hasQuantifiedEvidence = /\d+|%|万|千|增长|提升|降低|节省|用户|收入|转化|留存/.test(resumeText);
+      const evidenceSignals = [
+        ...(matchedKeywords.length ? [`已出现 ${matchedKeywords.length} 个目标关键词`] : []),
+        ...(hasQuantifiedEvidence ? ['简历中已出现量化结果表达'] : ['简历中暂未发现明确的量化结果表达']),
+        ...(selectedJob ? ['已锁定一个待验证岗位方向'] : ['尚未锁定岗位方向，请粘贴真实 JD 继续核验'])
+      ];
 
       const aiPrompt = {
         headline: '请输出可直接复制的优化简历',
@@ -534,9 +535,9 @@ const ResumeEnhancement = () => {
       };
 
       const sys = '你是中文简历优化器。目标不是打分，而是生成一份可以直接复制到简历里的成品。只输出JSON，不要Markdown，不要解释。';
-      const user = [
+      const userPrompt = [
         `【简历文本】${resumeText || '（无）'}`,
-        `【目标岗位】${selectedJob ? `${selectedJob.company} / ${selectedJob.title}` : '（未选择）'}`,
+        `【目标岗位】${selectedJob ? `${selectedJob.industry || '未指定行业'} / ${selectedJob.title}` : '（未选择）'}`,
         `【岗位描述】${jobDescription || '（无）'}`,
         `【职业决策依据】${careerProfile ? `${careerProfile.primaryDirection.rationale}\n已有证据：${careerProfile.evidence.map(item => item.claim).join('、')}\n待补齐：${careerProfile.gaps.join('、')}` : '（无）'}`,
         `【命中关键词】${matchedKeywords.join('、') || '（无）'}`,
@@ -554,7 +555,7 @@ const ResumeEnhancement = () => {
           body: JSON.stringify({
             messages: [
               { role: 'system', content: sys },
-              { role: 'user', content: user }
+              { role: 'user', content: userPrompt }
             ],
             model: 'deepseek-chat',
             temperature: 0.3,
@@ -597,11 +598,9 @@ const ResumeEnhancement = () => {
         originalFile: uploadedFile || assessmentData.resume,
         targetJob: selectedJob,
         analysisResult: {
-          competitiveScore,
-          keywordScore,
-          evidenceScore,
           matchedKeywords: matchedKeywords.slice(0, 16),
           missingKeywords,
+          evidenceSignals,
           improvements: [
             {
               category: '简历成品',
@@ -618,8 +617,8 @@ const ResumeEnhancement = () => {
             },
             {
               category: '证据强度',
-              severity: evidenceScore >= 80 ? 'low' : 'medium',
-              issue: evidenceScore >= 80 ? '已有量化表达' : '量化结果仍偏少',
+              severity: hasQuantifiedEvidence ? 'low' : 'medium',
+              issue: hasQuantifiedEvidence ? '已发现量化表达' : '量化结果仍偏少',
               suggestion: '每段经历至少保留一个数字、百分比或明确结果。'
             },
             {
@@ -635,12 +634,9 @@ const ResumeEnhancement = () => {
               situation: selectedJob ? `面向${selectedJob.title}岗位要求` : '面向目标岗位要求',
               task: '把经历改写成可投递内容',
               action: '优先保留结果、关键词和项目证据',
-              result: `预计匹配度可达到 ${competitiveScore}% 左右`
+              result: '以真实成果和可核验数据支撑每一条经历'
             }
-          },
-          matchingJobs: selectedJob
-            ? [{ title: selectedJob.title, company: selectedJob.company, matchRate: selectedJob.matchScore }]
-            : [{ title: '请先选择目标岗位', company: '岗位推荐模块', matchRate: competitiveScore }]
+          }
         },
         comparison: {
           before: beforeSummary,
@@ -658,7 +654,7 @@ const ResumeEnhancement = () => {
       if (isAuthenticated && user?.id) {
         const savedRecord: ResumeHistoryItem = {
           optimizedAt: new Date().toISOString(),
-          targetJob: selectedJob ? { title: selectedJob.title, company: selectedJob.company } : null,
+          targetJob: selectedJob ? { title: selectedJob.title, industry: selectedJob.industry } : null,
           draft: finalDraft,
           comparison: {
             before: beforeSummary,
@@ -670,9 +666,9 @@ const ResumeEnhancement = () => {
             ]
           },
           analysisResult: {
-            competitiveScore,
-            keywordScore,
-            evidenceScore
+            matchedKeywords: matchedKeywords.slice(0, 16),
+            missingKeywords,
+            evidenceSignals
           },
           originalFileName: (uploadedFile || assessmentData.resume)?.name || ''
         };
@@ -718,7 +714,7 @@ const ResumeEnhancement = () => {
       blob = await buildResumeDocx(
         draft,
         selectedJob?.title || '目标岗位',
-        selectedJob?.company || '目标公司'
+        selectedJob?.industry || '目标行业'
       );
     }
     const url = URL.createObjectURL(blob);
@@ -731,9 +727,9 @@ const ResumeEnhancement = () => {
     URL.revokeObjectURL(url);
   };
 
-  const handleGoToCareerPlanning = () => {
+  const handleGoToInterview = () => {
     setCurrentStep(4);
-    navigate('/career-planning');
+    navigate('/interview');
   };
 
   const showReadyState = useMemo(() => Boolean(draft), [draft]);
@@ -812,8 +808,8 @@ const ResumeEnhancement = () => {
                 <p className="mt-2 font-semibold text-white">{latestHistory.targetJob?.title || selectedJob?.title || '未记录'}</p>
               </div>
               <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4 text-gray-200">
-                <p className="text-sm text-gray-400">综合评分</p>
-                <p className="mt-2 font-semibold text-white">{latestHistory.analysisResult?.competitiveScore ?? '未记录'}</p>
+                <p className="text-sm text-gray-400">关键词记录</p>
+                <p className="mt-2 font-semibold text-white">已识别 {latestHistory.analysisResult?.matchedKeywords?.length ?? 0} 项</p>
               </div>
               <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4 text-gray-200">
                 <p className="text-sm text-gray-400">保存文件</p>
@@ -1000,9 +996,13 @@ const ResumeEnhancement = () => {
             </div>
 
             <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6 shadow-lg">
+              <label className="mb-4 flex cursor-pointer items-start gap-3 rounded-xl border border-gray-700 bg-gray-900/50 p-4 text-sm leading-6 text-gray-300">
+                <input type="checkbox" checked={analysisConsent} onChange={(event) => setAnalysisConsent(event.target.checked)} className="mt-1 h-4 w-4 accent-emerald-400" />
+                <span>我同意将简历文本、目标岗位描述和职业报告发送至 DeepSeek 生成优化稿。若上传文件，文件会先发送至文本解析服务提取内容；未勾选时不会发送。</span>
+              </label>
               <button
                 onClick={handleAnalyze}
-                disabled={!hasResumeSource || isProcessing}
+                disabled={!hasResumeSource || isProcessing || !analysisConsent}
                 className="inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 px-6 py-4 text-lg font-semibold text-white transition hover:from-purple-700 hover:to-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isProcessing ? (
@@ -1018,7 +1018,7 @@ const ResumeEnhancement = () => {
                 )}
               </button>
               <p className="mt-3 text-center text-sm text-gray-400">
-                输出会优先生成“可复制文本”，不是只给分析分数。
+                输出是一份可编辑、可复制并可下载的简历草稿。
               </p>
             </div>
           </div>
@@ -1127,23 +1127,17 @@ const ResumeEnhancement = () => {
 
         {draft && (
           <section className="mt-8 rounded-2xl border border-gray-700 bg-gradient-to-r from-purple-600 to-blue-600 p-6 text-white shadow-lg">
-            <h2 className="text-2xl font-bold">下一步只做两件事</h2>
+            <h2 className="text-2xl font-bold">下一步：开始面试训练</h2>
             <p className="mt-2 text-blue-100">
-              先把这版简历用于投递，再进入职业规划和面试训练。不要继续堆功能。
+              先用这版简历投递，再围绕同一岗位方向练习回答、案例和追问。
             </p>
-            <div className="mt-5 flex flex-col gap-4 sm:flex-row">
+            <div className="mt-5">
               <button
-                onClick={handleGoToCareerPlanning}
+                onClick={handleGoToInterview}
                 className="inline-flex items-center justify-center rounded-xl bg-white px-5 py-3 font-semibold text-purple-700 transition hover:bg-blue-50"
               >
-                进入职业规划
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </button>
-              <button
-                onClick={() => navigate('/interview')}
-                className="inline-flex items-center justify-center rounded-xl border border-white/30 px-5 py-3 font-semibold text-white transition hover:bg-white/10"
-              >
                 去面试训练
+                <ArrowRight className="ml-2 h-4 w-4" />
               </button>
             </div>
           </section>

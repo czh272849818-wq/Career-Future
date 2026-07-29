@@ -20,7 +20,7 @@ const Navbar = () => {
 
   const navigation = [
     { name: '首页', href: '/', icon: null },
-    { name: '分析报告', href: '/assessment', icon: null },
+    { name: '我的报告', href: '/assessment', icon: null },
     { name: '简历优化', href: '/resume', icon: null },
     { name: 'AI面试', href: '/interview', icon: null },
     { name: 'AI规划师', href: '/ai-chat', icon: null },

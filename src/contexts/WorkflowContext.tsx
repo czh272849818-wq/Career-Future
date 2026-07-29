@@ -6,6 +6,7 @@ export type CareerReadiness = 'ready_now' | 'build_evidence' | 'explore';
 
 export interface CareerProfile {
   generatedAt: string;
+  version: number;
   headline: string;
   summary: string;
   primaryDirection: {
@@ -45,21 +46,31 @@ export interface AssessmentData {
   industry?: string;
   targetPosition?: string;
   careerProfile?: CareerProfile;
+  careerReports?: CareerProfile[];
+  jobBrief?: JobBrief;
 }
 
-interface JobRecommendation {
+export interface JobBrief {
+  industry: string;
+  role: string;
+  city: string;
+  experienceLevel: string;
+  salaryFloor: string;
+  workMode: string;
+  updatedAt: string;
+}
+
+export interface JobRecommendation {
   id: string;
   title: string;
-  company: string;
-  matchScore: number;
   description: string;
   requirements: string[];
-  salary: string;
-  location: string;
   industry?: string;
-  reason?: string;
-  isNew?: boolean;
-  isUrgent?: boolean;
+  evidence?: string[];
+  gaps?: string[];
+  city?: string;
+  experienceLevel?: string;
+  workMode?: string;
 }
 
 interface WorkflowContextType {
@@ -89,7 +100,7 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
   const [assessmentData, setAssessmentData] = useState<AssessmentData>({
     answers: {}
   });
-  const [recommendedJobs, setRecommendedJobs] = useState<JobRecommendation[]>([]);
+  const [recommendedJobs, setRecommendedJobsState] = useState<JobRecommendation[]>([]);
   const [selectedJob, setSelectedJob] = useState<JobRecommendation | null>(null);
   const [optimizedResumeState, setOptimizedResumeState] = useState<any>(null);
   const [careerPlanState, setCareerPlanState] = useState<any>(null);
@@ -121,6 +132,7 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
       ...prev,
       ...(remote.assessmentData || {})
     }));
+    setRecommendedJobsState(remote.recommendedJobs || []);
     setSelectedJob(remote.selectedJob || null);
     setOptimizedResumeState(remote.optimizedResume || null);
     setCareerPlanState(remote.careerPlan || null);
@@ -132,6 +144,11 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
       void persistWorkflowState({ assessmentData: next });
       return next;
     });
+  }, [persistWorkflowState]);
+
+  const setRecommendedJobs = useCallback((jobs: JobRecommendation[]) => {
+    setRecommendedJobsState(jobs);
+    void persistWorkflowState({ recommendedJobs: jobs });
   }, [persistWorkflowState]);
 
   const selectJob = useCallback((job: JobRecommendation) => {
@@ -152,12 +169,13 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
   const resetWorkflow = useCallback(() => {
     setCurrentStep(1);
     setAssessmentData({ answers: {} });
-    setRecommendedJobs([]);
+    setRecommendedJobsState([]);
     setSelectedJob(null);
     setOptimizedResumeState(null);
     setCareerPlanState(null);
     void persistWorkflowState({
       assessmentData: { answers: {} },
+      recommendedJobs: [],
       selectedJob: null,
       optimizedResume: null,
       careerPlan: null

@@ -34,8 +34,8 @@ const CareerPlanning = () => {
   const [plan, setPlan] = useState<CareerPlan | null>(null);
 
   const targetTitle = selectedJob?.title || '目标岗位';
-  const targetCompany = selectedJob?.company || '目标公司';
-  const traits = assessmentData.traits?.slice(0, 4) || [];
+  const targetIndustry = selectedJob?.industry || '目标行业';
+  const profileEvidence = assessmentData.careerProfile?.evidence.map(item => item.claim).slice(0, 4) || [];
   const missingKeywords = optimizedResume?.analysisResult?.missingKeywords?.slice(0, 6) || [];
   const matchedKeywords = optimizedResume?.analysisResult?.matchedKeywords?.slice(0, 6) || [];
   const coreSkills = selectedJob?.requirements?.slice(0, 5) || missingKeywords.slice(0, 5) || [];
@@ -43,7 +43,7 @@ const CareerPlanning = () => {
   const generatePlan = () => {
     const generated: CareerPlan = {
       currentLevel: assessmentData.major ? `${assessmentData.major}背景候选人` : '待定位候选人',
-      targetLevel: selectedJob ? `${targetCompany} / ${targetTitle}` : '先锁定一个目标岗位',
+      targetLevel: selectedJob ? `${targetIndustry} / ${targetTitle}` : '先锁定一个目标岗位',
       timeframe: '90天',
       focus: [
         selectedJob ? '围绕一个目标岗位建立投递资产' : '先完成岗位选择，避免泛泛规划',
@@ -55,7 +55,7 @@ const CareerPlanning = () => {
           phase: '第1-30天：定位',
           goal: '明确一个目标岗位，完成简历证据重构',
           actions: [
-            selectedJob ? `以「${targetTitle}」为唯一目标重写简历` : '从岗位推荐中选择一个目标岗位',
+            selectedJob ? `以「${targetTitle}」为唯一目标重写简历` : '从岗位策略中选择一个目标方向',
             '把每段经历改成 STAR：场景、任务、行动、结果',
             coreSkills.length ? `补齐 ${coreSkills.slice(0, 3).join('、')} 的项目证据` : '整理3个能证明能力的项目案例'
           ],
@@ -67,7 +67,7 @@ const CareerPlanning = () => {
           actions: [
             missingKeywords.length ? `围绕 ${missingKeywords.slice(0, 2).join('、')} 做一个小项目` : '围绕目标岗位做一个小项目',
             '每周复盘一次投递反馈，删除无效方向',
-            traits.length ? `把 ${traits.slice(0, 2).join('、')} 转化为面试表达素材` : '把个人优势转化为面试表达素材'
+            profileEvidence.length ? `把 ${profileEvidence.slice(0, 2).join('、')} 转化为面试表达素材` : '补充可核验经历，再转化为面试素材'
           ],
           proof: '输出1个作品链接或项目说明，补充到简历'
         },
@@ -75,7 +75,7 @@ const CareerPlanning = () => {
           phase: '第61-90天：转化',
           goal: '进入高强度投递和面试训练',
           actions: [
-            '每周投递10个高匹配岗位，而不是海投',
+            '每周投递10个符合目标条件的真实岗位，而不是海投',
             '用AI面试训练高频问题、追问和反问',
             '根据面试反馈继续压缩简历和故事线'
           ],
@@ -119,8 +119,8 @@ const CareerPlanning = () => {
                   <span className={optimizedResume ? 'text-emerald-300' : 'text-yellow-300'}>{optimizedResume ? '已完成' : '建议先完成'}</span>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <span className="text-gray-400">测评画像</span>
-                  <span className={assessmentData.traits?.length ? 'text-emerald-300' : 'text-yellow-300'}>{assessmentData.traits?.length ? '已生成' : '待补充'}</span>
+                  <span className="text-gray-400">职业报告</span>
+                  <span className={assessmentData.careerProfile ? 'text-emerald-300' : 'text-yellow-300'}>{assessmentData.careerProfile ? '已生成' : '待补充'}</span>
                 </div>
               </div>
             </div>
@@ -132,7 +132,7 @@ const CareerPlanning = () => {
             <Target className="mx-auto mb-4 h-12 w-12 text-emerald-300" />
             <h2 className="text-2xl font-bold text-white">生成一个可执行的 90 天计划</h2>
             <p className="mx-auto mt-3 max-w-2xl text-gray-300">
-              系统会基于目标岗位、简历缺口和测评标签生成路线图。没有目标岗位也能生成，但建议先选择岗位。
+              系统会基于目标岗位、简历缺口和职业报告证据生成路线图。没有目标岗位也能生成，但建议先选择岗位。
             </p>
             <button
               onClick={generatePlan}
