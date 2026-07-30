@@ -8,6 +8,10 @@ type Attachment = {
   size: number;
 };
 
+const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENT_BYTES = 12 * 1024 * 1024;
+const isSupportedAttachment = (file: File) => /\.(pdf|docx?|xlsx?|csv|txt|md|png|jpe?g|gif|webp|mp4)$/i.test(file.name);
+
 interface ChatInputProps {
   onSendMessage: (message: string, attachments: Attachment[]) => Promise<void> | void;
   disabled?: boolean;
@@ -84,13 +88,25 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if (!files.length) return;
     setAttachmentError('');
     try {
-      const next = files.map((file) => ({
+      const validFiles = files.filter((file) => isSupportedAttachment(file) && file.size <= MAX_ATTACHMENT_BYTES);
+      if (validFiles.length !== files.length) {
+        setAttachmentError('仅支持文档、表格、图片或 MP4，且单个附件不超过 12 MB。');
+      }
+      const remaining = Math.max(0, MAX_ATTACHMENTS - attachments.length);
+      if (!remaining) {
+        setAttachmentError(`单次对话最多添加 ${MAX_ATTACHMENTS} 个附件。`);
+        return;
+      }
+      if (validFiles.length > remaining) {
+        setAttachmentError(`单次对话最多添加 ${MAX_ATTACHMENTS} 个附件，其余文件未添加。`);
+      }
+      const next = validFiles.slice(0, remaining).map((file) => ({
         file,
         name: file.name,
         type: file.type,
         size: file.size
       }));
-      setAttachments(prev => [...prev, ...next]);
+      if (next.length) setAttachments(prev => [...prev, ...next]);
     } catch {
       setAttachmentError('附件读取失败，请重试');
     } finally {

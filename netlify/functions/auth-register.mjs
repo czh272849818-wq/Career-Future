@@ -22,15 +22,19 @@ export default async (req, context) => {
   }
 
   const { email = '', password = '', name = '', phone = '' } = body || {};
-  if (!email || !password) {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  if (!normalizedEmail || !password) {
     return new Response(JSON.stringify({ error: '邮箱与密码为必填' }), { status: 400, headers });
   }
-  if (String(password).length < 8) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return new Response(JSON.stringify({ error: '请输入有效邮箱地址' }), { status: 400, headers });
+  }
+  if (String(password).length < 8 || String(password).length > 128) {
     return new Response(JSON.stringify({ error: '密码至少需要 8 位' }), { status: 400, headers });
   }
 
   try {
-    const user = await createUser({ email, password, name, phone });
+    const user = await createUser({ email: normalizedEmail, password, name, phone });
     const token = createToken(user);
     const resBody = { token, user: sanitizeUser(user) };
     return new Response(JSON.stringify(resBody), { status: 200, headers: { ...headers, 'Content-Type': 'application/json' } });

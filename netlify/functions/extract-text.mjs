@@ -1,5 +1,8 @@
 // 按需动态加载依赖，避免在未安装依赖时顶层初始化失败导致 502
 
+const MAX_FILE_BYTES = 12 * 1024 * 1024;
+const MAX_BASE64_LENGTH = Math.ceil(MAX_FILE_BYTES * 4 / 3) + 4;
+
 // Netlify Node Function: 文本提取（支持 TXT / DOCX / DOC / PDF / XLSX / CSV / 图片OCR / MP4元数据）
 export default async (req) => {
   const headers = {
@@ -26,6 +29,9 @@ export default async (req) => {
       if (!formFile || typeof formFile === 'string') {
         return new Response(JSON.stringify({ error: 'missing file' }), { status: 400, headers });
       }
+      if (formFile.size > MAX_FILE_BYTES) {
+        return new Response(JSON.stringify({ error: 'file too large', maxBytes: MAX_FILE_BYTES }), { status: 413, headers });
+      }
       body = {
         fileName: formFile.name || '',
         mimeType: formFile.type || '',
@@ -49,8 +55,23 @@ export default async (req) => {
       console.warn(`[extract-text] 400 missing dataBase64 fileName=${fileName} mimeType=${mimeType}`);
       return new Response(JSON.stringify({ error: 'missing dataBase64' }), { status: 400, headers });
     }
+    if (String(dataBase64).length > MAX_BASE64_LENGTH) {
+      return new Response(JSON.stringify({ error: 'file too large', maxBytes: MAX_FILE_BYTES }), { status: 413, headers });
+    }
     const buf = Buffer.from(String(dataBase64), 'base64');
     const lowerName = String(fileName).toLowerCase();
+    const supported = mimeType.startsWith('text/')
+      || mimeType.startsWith('image/')
+      || mimeType.includes('pdf')
+      || mimeType.includes('msword')
+      || mimeType.includes('officedocument.wordprocessingml.document')
+      || mimeType.includes('spreadsheetml.sheet')
+      || mimeType.includes('csv')
+      || mimeType === 'video/mp4'
+      || /\.(txt|md|pdf|docx?|xlsx?|csv|png|jpe?g|bmp|tif?f|gif|webp|mp4)$/i.test(lowerName);
+    if (!supported) {
+      return new Response(JSON.stringify({ error: 'unsupported file type' }), { status: 415, headers });
+    }
 
     // TXT 直接返回
     if (mimeType.startsWith('text/') || lowerName.endsWith('.txt')) {
@@ -111,9 +132,7 @@ export default async (req) => {
         return new Response(JSON.stringify({ text, method: 'docx' }), { headers });
       } catch (docxErr) {
         console.warn('[DOCX] mammoth import/parse failed:', docxErr);
-        // 尝试直接 UTF-8 作为兜底，避免 502；用户可重新上传 PDF 或 TXT
-        const text = buf.toString('utf-8');
-        return new Response(JSON.stringify({ text, method: 'docx-fallback-utf8', warn: 'docx parser unavailable' }), { headers });
+        return new Response(JSON.stringify({ error: 'docx parse failed' }), { status: 422, headers });
       }
     }
 
@@ -128,9 +147,8 @@ export default async (req) => {
         console.log(`[extract-text] method=doc fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
         return new Response(JSON.stringify({ text, method: 'doc' }), { headers });
       } catch (docErr) {
-        console.warn('[DOC] parse failed, fallback to utf-8:', docErr);
-        const text = buf.toString('utf-8');
-        return new Response(JSON.stringify({ text, method: 'doc-fallback-utf8' }), { headers });
+        console.warn('[DOC] parse failed:', docErr);
+        return new Response(JSON.stringify({ error: 'doc parse failed' }), { status: 422, headers });
       }
     }
 
@@ -171,20 +189,18 @@ export default async (req) => {
           console.log(`[extract-text] method=pdf fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
           return new Response(JSON.stringify({ text, method: 'pdf' }), { headers });
         } catch (pdfErr) {
-          console.warn('[PDF] pdf-parse failed, final utf8 fallback:', pdfErr);
-          const text = buf.toString('utf-8');
-          return new Response(JSON.stringify({ text, method: 'pdf-fallback-utf8', warn: 'pdf parser unavailable' }), { headers });
+          console.warn('[PDF] pdf-parse failed:', pdfErr);
+          return new Response(JSON.stringify({ error: 'pdf parse failed' }), { status: 422, headers });
         }
       }
     }
 
-    // 其他格式：回退二进制直接转 UTF-8
-    const text = buf.toString('utf-8');
-    console.log(`[extract-text] method=binary-utf8 fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
-    return new Response(JSON.stringify({ text, method: 'binary-utf8' }), { headers });
+    return new Response(JSON.stringify({ error: 'unsupported file type' }), { status: 415, headers });
   } catch (err) {
     console.error('[ExtractText] error:', err);
     console.warn(`[extract-text] 500 fileName=${body?.fileName} mimeType=${body?.mimeType} dur=${Date.now()-t0}ms`);
     return new Response(JSON.stringify({ error: 'extract failed', details: String(err) }), { status: 500, headers });
   }
 };
+
+export { MAX_FILE_BYTES };

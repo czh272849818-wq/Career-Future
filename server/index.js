@@ -30,6 +30,8 @@ app.use(express.json({ limit: '40mb' }));
 const PORT = process.env.PORT || 3001;
 const API_KEY = process.env.DEEPSEEK_API_KEY;
 const API_URL = 'https://api.deepseek.com/v1/chat/completions';
+const MAX_FILE_BYTES = 12 * 1024 * 1024;
+const MAX_BASE64_LENGTH = Math.ceil(MAX_FILE_BYTES * 4 / 3) + 4;
 
 if (!API_KEY) {
   console.warn('[DeepSeek] Missing DEEPSEEK_API_KEY in environment');
@@ -57,9 +59,11 @@ function requireCurrentUser(req, res, requestedUserId) {
 app.post('/api/auth/register', (req, res) => {
   try {
     const { email = '', password = '', name = '', phone = '' } = req.body || {};
-    if (!email || !password) return res.status(400).json({ error: '邮箱与密码为必填' });
-    if (String(password).length < 8) return res.status(400).json({ error: '密码至少需要 8 位' });
-    const user = createUser({ email, password, name, phone });
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!normalizedEmail || !password) return res.status(400).json({ error: '邮箱与密码为必填' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) return res.status(400).json({ error: '请输入有效邮箱地址' });
+    if (String(password).length < 8 || String(password).length > 128) return res.status(400).json({ error: '密码至少需要 8 位' });
+    const user = createUser({ email: normalizedEmail, password, name, phone });
     const token = createToken(user);
     return res.json({ token, user: sanitizeUser(user) });
   } catch (err) {
@@ -187,8 +191,21 @@ app.post('/api/extract-text', async (req, res) => {
       console.warn(`[extract-text] 400 missing dataBase64 fileName=${fileName} mimeType=${mimeType}`);
       return res.status(400).json({ error: 'missing dataBase64' });
     }
+    if (String(dataBase64).length > MAX_BASE64_LENGTH) {
+      return res.status(413).json({ error: 'file too large', maxBytes: MAX_FILE_BYTES });
+    }
     const buf = Buffer.from(String(dataBase64), 'base64');
     const lowerName = String(fileName).toLowerCase();
+    const supported = mimeType.startsWith('text/')
+      || mimeType.startsWith('image/')
+      || mimeType.includes('pdf')
+      || mimeType.includes('msword')
+      || mimeType.includes('officedocument.wordprocessingml.document')
+      || mimeType.includes('spreadsheetml.sheet')
+      || mimeType.includes('csv')
+      || mimeType === 'video/mp4'
+      || /\.(txt|md|pdf|docx?|xlsx?|csv|png|jpe?g|bmp|tif?f|gif|webp|mp4)$/i.test(lowerName);
+    if (!supported) return res.status(415).json({ error: 'unsupported file type' });
 
     // TXT 直接返回
     if (mimeType.startsWith('text/') || lowerName.endsWith('.txt')) {
@@ -262,10 +279,7 @@ app.post('/api/extract-text', async (req, res) => {
       return res.json({ text, method: 'pdf' });
     }
 
-    // 其他格式暂不支持，回退为二进制直接转utf-8
-    const text = buf.toString('utf-8');
-    console.log(`[extract-text] method=binary-utf8 fileName=${fileName} mimeType=${mimeType} size=${buf.length} textLen=${text.length} dur=${Date.now()-t0}ms`);
-    return res.json({ text, method: 'binary-utf8' });
+    return res.status(415).json({ error: 'unsupported file type' });
   } catch (err) {
     console.error('[ExtractText] error:', err);
     console.warn(`[extract-text] 500 fileName=${req.body?.fileName} mimeType=${req.body?.mimeType} dur=${Date.now()-t0}ms`);

@@ -11,6 +11,8 @@
     "dev:host": "vite --host",
     "build": "vite build",
     "test": "node --test",
+    "check:types": "tsc -p tsconfig.app.json --noEmit",
+    "test:release": "npm run check:types && npm test && npm run build && git diff --check",
     "lint": "eslint .",
     "preview": "vite preview",
     "preview:host": "vite preview --host"

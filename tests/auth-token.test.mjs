@@ -13,6 +13,8 @@ import {
 import chatSessionsHandler from '../netlify/functions/chat-sessions.mjs';
 import userAssessmentsHandler from '../netlify/functions/user-assessments.mjs';
 import userDataHandler from '../netlify/functions/user-data.mjs';
+import authRegisterHandler from '../netlify/functions/auth-register.mjs';
+import extractTextHandler, { MAX_FILE_BYTES } from '../netlify/functions/extract-text.mjs';
 
 process.env.AUTH_SECRET = 'test-only-auth-secret-for-token-boundary';
 
@@ -69,4 +71,36 @@ test('cloud data handlers reject unauthenticated and cross-user requests before 
 
   const unauthorized = await userDataHandler(new Request('https://example.test/user-data?userId=user-a'));
   assert.equal(unauthorized.status, 401);
+});
+
+test('registration rejects malformed email and unsafe password lengths before persistence', async () => {
+  const invalidEmail = await authRegisterHandler(new Request('https://example.test/auth-register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'not-an-email', password: 'password123' })
+  }));
+  const oversizedPassword = await authRegisterHandler(new Request('https://example.test/auth-register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'user@example.test', password: 'a'.repeat(129) })
+  }));
+
+  assert.equal(invalidEmail.status, 400);
+  assert.equal(oversizedPassword.status, 400);
+});
+
+test('file extraction rejects unsupported and oversized uploads before parsing', async () => {
+  const unsupported = await extractTextHandler(new Request('https://example.test/extract-text', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileName: 'resume.exe', mimeType: 'application/octet-stream', dataBase64: 'aGVsbG8=' })
+  }));
+  const oversized = await extractTextHandler(new Request('https://example.test/extract-text', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileName: 'resume.txt', mimeType: 'text/plain', dataBase64: 'A'.repeat(Math.ceil(MAX_FILE_BYTES * 4 / 3) + 8) })
+  }));
+
+  assert.equal(unsupported.status, 415);
+  assert.equal(oversized.status, 413);
 });

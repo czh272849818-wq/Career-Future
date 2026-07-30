@@ -42,6 +42,9 @@ type ResumeHistoryItem = {
 
 type GenerationState = 'idle' | 'ready' | 'failed' | 'unverified';
 
+const MAX_RESUME_FILE_BYTES = 12 * 1024 * 1024;
+const isSupportedResumeFile = (file: File) => /\.(pdf|docx?|txt)$/i.test(file.name);
+
 const XML_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const DOCX_CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -326,6 +329,7 @@ const ResumeEnhancement = () => {
   const [analysisConsent, setAnalysisConsent] = useState(false);
   const [generationState, setGenerationState] = useState<GenerationState>('idle');
   const [generationError, setGenerationError] = useState('');
+  const [fileError, setFileError] = useState('');
 
   useEffect(() => {
     setJobDescription(selectedJob?.source === 'real_jd' ? selectedJob.jdText || '' : '');
@@ -351,7 +355,7 @@ const ResumeEnhancement = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, user?.id]);
 
-  const hasResumeSource = Boolean(uploadedFile || assessmentData.resume || assessmentData.resumeText);
+  const hasResumeSource = Boolean(uploadedFile || assessmentData.resume || assessmentData.resumeText?.trim());
 
   const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -381,9 +385,15 @@ const ResumeEnhancement = () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fileName: file.name, mimeType: file.type, dataBase64: base64 })
     });
-    if (!resp.ok) return '';
+    if (!resp.ok) {
+      const payload = await resp.json().catch(() => ({}));
+      setFileError(String(payload?.error || '简历文本提取失败，请改用可复制文本、PDF、DOC 或 DOCX。'));
+      return '';
+    }
     const data = await resp.json();
-    return String(data?.text || '');
+    const text = String(data?.text || '').trim();
+    if (!text) setFileError('未从文件中提取到可用文本。扫描件请粘贴文字或在测评页完成 OCR 后再继续。');
+    return text;
   };
 
   const getUnsupportedNumbers = (candidate: ResumeDraft, sourceText: string) => {
@@ -445,14 +455,26 @@ const ResumeEnhancement = () => {
 
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
-    if (file.type === 'application/pdf' || file.name.endsWith('.docx')) {
-      setUploadedFile(file);
-    }
+    selectResumeFile(file);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    selectResumeFile(file);
+    e.target.value = '';
+  };
+
+  const selectResumeFile = (file: File) => {
+    if (!isSupportedResumeFile(file)) {
+      setFileError('仅支持 PDF、DOC、DOCX 或 TXT 简历文件。');
+      return;
+    }
+    if (file.size > MAX_RESUME_FILE_BYTES) {
+      setFileError('简历文件不能超过 12 MB。');
+      return;
+    }
+    setFileError('');
     setUploadedFile(file);
   };
 
@@ -483,6 +505,12 @@ const ResumeEnhancement = () => {
     try {
       selectJob({ ...selectedJob, source: 'real_jd', jdText: jobDescription.trim() });
       const resumeText = await getResumeText();
+      if (resumeText.trim().length < 40) {
+        setDraft(null);
+        setGenerationState('failed');
+        setGenerationError('未获得足够的简历文本，无法生成可核验草稿。请粘贴完整简历，或上传可提取文本的文件。');
+        return;
+      }
       const targetText = [jobDescription, selectedJob?.title].filter(Boolean).join('\n');
 
       const resumeNorm = normalizeText(resumeText);
@@ -868,7 +896,10 @@ const ResumeEnhancement = () => {
                       <p className="text-sm text-gray-400">{(uploadedFile.size / 1024 / 1024).toFixed(2)} MB</p>
                     </div>
                     <button
-                      onClick={() => setUploadedFile(null)}
+                      onClick={() => {
+                        setUploadedFile(null);
+                        setFileError('');
+                      }}
                       className="text-sm text-red-400 hover:text-red-300"
                     >
                       移除文件
@@ -879,13 +910,13 @@ const ResumeEnhancement = () => {
                     <Upload className="mx-auto h-12 w-12 text-gray-500" />
                     <div>
                       <p className="text-lg font-medium text-white">拖拽简历到这里，或点击选择</p>
-                      <p className="text-gray-400">支持 PDF、DOCX</p>
+                      <p className="text-gray-400">支持 PDF、DOC、DOCX、TXT，单个文件不超过 12 MB</p>
                     </div>
                     <div>
                       <input
                         id="file-upload"
                         type="file"
-                        accept=".pdf,.docx"
+                        accept=".pdf,.doc,.docx,.txt"
                         onChange={handleFileSelect}
                         className="hidden"
                       />
@@ -899,6 +930,7 @@ const ResumeEnhancement = () => {
                   </div>
                 )}
               </div>
+              {fileError && <p role="alert" className="mt-3 text-sm text-red-300">{fileError}</p>}
 
               <div className="mt-5 rounded-xl border border-gray-700 bg-gray-900/40 p-4">
                 <div className="flex items-center justify-between gap-4">

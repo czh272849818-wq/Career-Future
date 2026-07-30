@@ -76,14 +76,13 @@ const AIChat = () => {
       return { ...item, text: data.text || '' };
     }));
 
-    const resolvedAttachments = parsed
-      .map((result, index) => {
-        if (result.status === 'fulfilled') return result.value;
-        return {
-          ...attachments[index],
-          text: ''
-        };
-      });
+    const failedNames = parsed
+      .map((result, index) => result.status === 'rejected' ? attachments[index]?.name : '')
+      .filter(Boolean);
+    if (failedNames.length) {
+      throw new Error(`无法识别附件：${failedNames.join('、')}。请改用可复制文本、清晰 PDF 或 DOCX 后重试。`);
+    }
+    const resolvedAttachments = parsed.map(result => result.status === 'fulfilled' ? result.value : null).filter(Boolean);
 
     await sendMessageWithAttachments(message || '请结合附件内容给出分析。', resolvedAttachments as any);
   };

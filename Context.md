@@ -48,6 +48,10 @@ flowchart LR
 
 **准出原则**：每个需求必须有可验证的验收项。目标是相关测试用例通过率不低于 95%；在测试体系尚未建立前，不得以“页面能打开”代替验收。
 
+**当前发布门禁**：以 [QualityGate.md](QualityGate.md) 为准。Netlify 构建必须执行 `npm run test:release`，包含严格 TypeScript、自动化测试、生产构建与差异检查；任一步失败即阻断部署。
+
+**质量审计**：最新用户场景覆盖、已修复风险和 P1/P2 优先级见 [ProductQualityReview.md](ProductQualityReview.md)。后续产品优化必须先从该审计中的 P0/P1 问题确认，而不是增加未验证功能。
+
 ### 1.3 Context 更新规则
 
 以下变化必须在同一版本更新 Context：
