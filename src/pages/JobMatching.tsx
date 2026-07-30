@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Briefcase, CheckCircle, Search, Target } from 'lucide-react';
 import { useWorkflow, type JobBrief, type JobRecommendation } from '../contexts/WorkflowContext';
@@ -71,7 +71,8 @@ const JobMatching = () => {
         requirements: ['收集真实 JD', '提取高频职责', '准备可验证案例'],
         city: brief.city,
         experienceLevel: brief.experienceLevel,
-        workMode: brief.workMode
+        workMode: brief.workMode,
+        source: 'strategy'
       },
       ...alternatives.map((alternative, index) => ({
         id: `direction-alternative-${index + 1}`,
@@ -83,7 +84,8 @@ const JobMatching = () => {
         requirements: ['对比职责边界', '验证进入门槛', '准备相邻案例'],
         city: brief.city,
         experienceLevel: brief.experienceLevel,
-        workMode: brief.workMode
+        workMode: brief.workMode,
+        source: 'strategy' as const
       }))
     ];
   };
@@ -142,7 +144,8 @@ const JobMatching = () => {
           requirements: asList(direction.requirements, 5),
           city: brief.city,
           experienceLevel: brief.experienceLevel,
-          workMode: brief.workMode
+          workMode: brief.workMode,
+          source: 'strategy'
         };
       }).filter((item): item is JobRecommendation => Boolean(item));
 

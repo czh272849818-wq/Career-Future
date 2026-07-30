@@ -230,7 +230,8 @@ const Assessment = () => {
   }, [selectedIndustryLocal]);
 
   const currentQuestion = currentAssessment[currentQuestionIndex];
-  const progress = currentAssessment.length > 0 ? ((currentQuestionIndex + 1) / currentAssessment.length) * 100 : 0;
+  const answeredCount = currentAssessment.filter(question => Boolean(answers[question.id])).length;
+  const progress = currentAssessment.length > 0 ? (answeredCount / currentAssessment.length) * 100 : 0;
   const isLastQuestion = currentQuestionIndex === currentAssessment.length - 1;
 
   const getNextReportVersion = () => {
@@ -350,7 +351,7 @@ const Assessment = () => {
 
   const handleStartAssessment = (type: 'general' | 'industry') => {
     if (!isAuthenticated) {
-      navigate('/login');
+      navigate('/login', { state: { from: '/assessment' } });
       return;
     }
     
@@ -363,7 +364,7 @@ const Assessment = () => {
   // 行业专项测评入口：校验并启动
   const handleStartIndustryAssessment = () => {
     if (!isAuthenticated) {
-      navigate('/login');
+      navigate('/login', { state: { from: '/assessment' } });
       return;
     }
     if (!selectedIndustryLocal || !selectedPositionLocal) {
@@ -926,7 +927,7 @@ const Assessment = () => {
 
             <div className="grid border-t border-gray-700 lg:grid-cols-2">
               <section className="px-6 py-7 sm:px-8">
-                <h2 className="text-lg font-semibold text-white">已有证据</h2>
+                <h2 className="text-lg font-semibold text-white">当前信息与偏好信号</h2>
                 <ul className="mt-4 space-y-4">
                   {profile.evidence.map((item) => (
                     <li key={`${item.source}-${item.claim}`} className="flex gap-3 text-sm leading-6 text-gray-300">

@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { Bot, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Bot, Menu, Sparkles, X } from 'lucide-react';
 import { useChat } from '../contexts/ChatContext';
 import { apiUrl } from '../api';
 import ChatMessage from '../components/chat/ChatMessage';
@@ -18,6 +18,7 @@ const AIChat = () => {
   } = useChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -96,6 +97,7 @@ const AIChat = () => {
       <div className="mx-auto flex h-full max-w-7xl flex-col">
         <div className="flex min-h-0 flex-1 gap-4">
           <ChatSidebar
+            className="hidden shrink-0 md:flex"
             sessions={sessions}
             currentSessionId={currentSession?.id || null}
             onNewSession={createNewSession}
@@ -103,9 +105,31 @@ const AIChat = () => {
             onDeleteSession={deleteSession}
           />
 
+          {isSidebarOpen && (
+            <div className="fixed inset-0 z-50 flex md:hidden">
+              <button aria-label="关闭会话列表" className="absolute inset-0 bg-black/60" onClick={() => setIsSidebarOpen(false)} />
+              <div className="relative h-full">
+                <ChatSidebar
+                  sessions={sessions}
+                  currentSessionId={currentSession?.id || null}
+                  onNewSession={createNewSession}
+                  onSwitchSession={switchSession}
+                  onDeleteSession={deleteSession}
+                  onNavigate={() => setIsSidebarOpen(false)}
+                />
+                <button aria-label="关闭会话列表" onClick={() => setIsSidebarOpen(false)} className="absolute right-3 top-3 rounded-lg p-2 text-gray-300 hover:bg-gray-700">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-gray-800 bg-gray-900/70">
             <div className="shrink-0 border-b border-gray-800 bg-gray-900/80 px-5 py-4 backdrop-blur-sm">
               <div className="flex items-center gap-3">
+                <button aria-label="打开会话列表" onClick={() => setIsSidebarOpen(true)} className="rounded-lg p-2 text-gray-300 hover:bg-gray-800 md:hidden">
+                  <Menu className="h-5 w-5" />
+                </button>
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-r from-purple-600 to-blue-600">
                   <Bot className="h-5 w-5 text-white" />
                 </div>

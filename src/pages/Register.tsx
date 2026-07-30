@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -13,6 +13,10 @@ const Register = () => {
   const [error, setError] = useState('');
 
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = typeof location.state?.from === 'string' && location.state.from.startsWith('/')
+    ? location.state.from
+    : '/assessment';
   const { register } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -25,7 +29,7 @@ const Register = () => {
         email: formData.email,
         password: formData.password
       });
-      navigate('/assessment');
+      navigate(from, { replace: true });
     } catch (err: any) {
       setError(err.message || '注册失败，请重试');
     } finally {
@@ -114,7 +118,7 @@ const Register = () => {
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-400">
                 已有账号？{' '}
-                <Link to="/login" className="font-medium text-emerald-400 hover:text-emerald-300">
+                <Link to="/login" state={{ from }} className="font-medium text-emerald-400 hover:text-emerald-300">
                   返回登录
                 </Link>
               </p>

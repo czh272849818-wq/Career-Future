@@ -15,6 +15,8 @@ interface ChatSidebarProps {
   onNewSession: () => void;
   onSwitchSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
+  className?: string;
+  onNavigate?: () => void;
 }
 
 const ChatSidebar: React.FC<ChatSidebarProps> = ({
@@ -22,7 +24,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   currentSessionId,
   onNewSession,
   onSwitchSession,
-  onDeleteSession
+  onDeleteSession,
+  className = '',
+  onNavigate
 }) => {
   const formatDate = (date: Date) => {
     const now = new Date();
@@ -36,11 +40,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   };
 
   return (
-    <div className="flex h-full w-80 flex-col overflow-hidden bg-gray-800/50 backdrop-blur-sm border-r border-gray-700">
+    <div className={`flex h-full w-80 max-w-[85vw] flex-col overflow-hidden border-r border-gray-700 bg-gray-800/95 backdrop-blur-sm ${className}`}>
       {/* Header */}
       <div className="p-4 border-b border-gray-700">
         <button
-          onClick={onNewSession}
+          onClick={() => {
+            onNewSession();
+            onNavigate?.();
+          }}
           className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all duration-200"
         >
           <Plus className="h-4 w-4" />
@@ -59,7 +66,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                   ? 'bg-purple-600/20 border border-purple-500/30'
                   : 'hover:bg-gray-700/50'
               }`}
-              onClick={() => onSwitchSession(session.id)}
+              onClick={() => {
+                onSwitchSession(session.id);
+                onNavigate?.();
+              }}
             >
               <div className="flex items-start space-x-3">
                 <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full flex items-center justify-center">

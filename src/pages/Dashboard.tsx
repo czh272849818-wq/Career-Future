@@ -1,4 +1,3 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -73,7 +72,7 @@ const Dashboard = () => {
     careerProfile ? `报告主方向：${careerProfile.primaryDirection.role}` : '暂无职业报告',
     selectedJob ? `目标岗位：${selectedJob.title}` : '尚未锁定目标岗位',
     assessmentData.major ? `专业背景：${assessmentData.major}` : '专业背景未填写',
-    careerProfile?.evidence.length ? `已有证据：${careerProfile.evidence.map(item => item.claim).slice(0, 2).join('、')}` : '求职证据待补充'
+    careerProfile?.evidence.length ? `当前信号：${careerProfile.evidence.map(item => item.claim).slice(0, 2).join('、')}` : '求职证据待补充'
   ];
 
   return (

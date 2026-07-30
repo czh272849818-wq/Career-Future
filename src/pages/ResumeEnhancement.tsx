@@ -6,11 +6,9 @@ import {
   Copy,
   Download,
   FileText,
-  Lightbulb,
   Sparkles,
   Target,
-  Upload,
-  Zap
+  Upload
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { useWorkflow } from '../contexts/WorkflowContext';
@@ -29,6 +27,7 @@ type ResumeDraft = {
   keywords: string[];
   gapNotes: string[];
   copyText: string;
+  sourceQuotes?: Array<{ draftText: string; sourceQuote: string }>;
 };
 
 type ResumeHistoryItem = {
@@ -38,7 +37,10 @@ type ResumeHistoryItem = {
   comparison?: { before?: string; after?: string; changedPoints?: string[] };
   analysisResult?: { matchedKeywords?: string[]; missingKeywords?: string[]; evidenceSignals?: string[] };
   originalFileName?: string;
+  integrityVersion?: 1;
 };
+
+type GenerationState = 'idle' | 'ready' | 'failed' | 'unverified';
 
 const XML_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const DOCX_CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -310,7 +312,7 @@ const buildTemplateResumeDocx = async (
 
 const ResumeEnhancement = () => {
   const navigate = useNavigate();
-  const { selectedJob, assessmentData, optimizedResume, setOptimizedResume, setCurrentStep, updateAssessmentData } = useWorkflow();
+  const { selectedJob, assessmentData, optimizedResume, selectJob, setOptimizedResume, setCurrentStep, updateAssessmentData } = useWorkflow();
   const { user, isAuthenticated } = useAuth();
   const [resumeTemplate, setResumeTemplate] = useState<TemplateType>('zh');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -322,13 +324,11 @@ const ResumeEnhancement = () => {
   const [resumeHistory, setResumeHistory] = useState<ResumeHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [analysisConsent, setAnalysisConsent] = useState(false);
+  const [generationState, setGenerationState] = useState<GenerationState>('idle');
+  const [generationError, setGenerationError] = useState('');
 
   useEffect(() => {
-    if (!selectedJob) return;
-    setJobDescription(`职位方向：${selectedJob.title}
-行业：${selectedJob.industry || '未指定'}
-方向说明：${selectedJob.description}
-真实 JD 核验重点：${selectedJob.requirements.join('、')}`);
+    setJobDescription(selectedJob?.source === 'real_jd' ? selectedJob.jdText || '' : '');
   }, [selectedJob]);
 
   useEffect(() => {
@@ -343,8 +343,6 @@ const ResumeEnhancement = () => {
         const payload = await resp.json().catch(() => ({}));
         const history = Array.isArray(payload?.data?.resumes) ? payload.data.resumes : [];
         setResumeHistory(history);
-        const latest = history[0] || payload?.data?.optimizedResume || null;
-        if (!draft && latest?.draft) setDraft(latest.draft);
       } finally {
         setHistoryLoading(false);
       }
@@ -352,12 +350,6 @@ const ResumeEnhancement = () => {
     void loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, user?.id]);
-
-  useEffect(() => {
-    if (!draft && optimizedResume?.draft) {
-      setDraft(optimizedResume.draft);
-    }
-  }, [draft, optimizedResume]);
 
   const hasResumeSource = Boolean(uploadedFile || assessmentData.resume || assessmentData.resumeText);
 
@@ -394,67 +386,47 @@ const ResumeEnhancement = () => {
     return String(data?.text || '');
   };
 
-  const buildFallbackDraft = (resumeText: string, targetKeywords: string[]): ResumeDraft => {
-    const topKeywords = targetKeywords.slice(0, 6);
-    const focus = selectedJob?.title || '目标岗位';
-    const industry = selectedJob?.industry || '目标行业';
-    const summary = selectedJob
-      ? `面向${focus}岗位，擅长把复杂工作转成可量化结果，能够围绕${topKeywords.slice(0, 3).join('、') || '岗位要求'}快速产出业务价值。`
-      : '围绕目标岗位重写的简历概要，突出量化成果、岗位关键词和可验证能力。';
-
-    return {
-      headline: `${focus} | ${industry} | 结果导向型候选人`,
-      summary,
-      education: [
-        '教育经历：按“学校 / 专业 / 学位 / 时间”填写。',
-        '如果有优秀课程、GPA 或奖项，可单独保留一行。'
-      ],
-      experience: [
-        `将原始经历重写为“动作 + 方法 + 结果”，优先保留能证明${topKeywords[0] || '岗位能力'}的项目。`,
-        `把与目标岗位无关的描述压缩为一行，只保留能够支撑投递的证据。`,
-        `如果当前简历缺少数字结果，优先补充用户增长、效率提升、成本下降、协作规模等指标。`
-      ],
-      skills: topKeywords.length ? topKeywords : ['岗位匹配', '项目表达', '量化结果', '协作推进'],
-      projects: [
-        '项目1：围绕目标岗位最相关的业务问题，说明背景、动作、结果。',
-        '项目2：补充一个能证明你做成事情的案例，尽量带数字。',
-        '项目3：如果没有项目链接，至少写清楚你具体负责了什么、影响了什么。'
-      ],
-      keywords: topKeywords,
-      gapNotes: resumeText ? [
-        '把职责改成结果，不要只写做了什么。',
-        '把弱相关经历压缩掉，留出简历版面给最强证据。',
-        '用目标岗位词汇重写项目标题和摘要。'
-      ] : [
-        '先提供一份可解析的简历文本或文件。',
-        '再基于目标岗位重写经历和技能。',
-        '优化时优先保留可验证成果。'
-      ],
-      copyText: [
-        `姓名｜${focus}候选人`,
-        `目标岗位：${focus}`,
-        `当前标题：${focus} | ${industry} | 结果导向型候选人`,
-        '',
-        '个人简介',
-        summary,
-        '',
-        '工作经历',
-        ...[
-          `• 将原始经历重写为“动作 + 方法 + 结果”，优先保留能证明${topKeywords[0] || '岗位能力'}的项目。`,
-          `• 把与目标岗位无关的描述压缩为一行，只保留能够支撑投递的证据。`,
-          `• 如果当前简历缺少数字结果，优先补充用户增长、效率提升、成本下降、协作规模等指标。`
-        ],
-        '',
-        '核心技能',
-        topKeywords.join(' / ') || '岗位匹配 / 项目表达 / 量化结果 / 协作推进',
-        '',
-        '项目经历',
-        '• 项目1：围绕目标岗位最相关的业务问题，说明背景、动作、结果。',
-        '• 项目2：补充一个能证明你做成事情的案例，尽量带数字。',
-        '• 项目3：如果没有项目链接，至少写清楚你具体负责了什么、影响了什么。'
-      ].join('\n')
-    };
+  const getUnsupportedNumbers = (candidate: ResumeDraft, sourceText: string) => {
+    const numbers = (value: string) => value.match(/\d+(?:\.\d+)?%?/g) || [];
+    const allowed = new Set(numbers(sourceText));
+    const body = [candidate.summary, ...(candidate.education || []), ...candidate.experience, ...candidate.projects].join('\n');
+    return Array.from(new Set(numbers(body).filter(value => !allowed.has(value))));
   };
+
+  const isUsableDraft = (candidate: ResumeDraft, sourceText: string) => {
+    const output = JSON.stringify(candidate);
+    const hasPlaceholders = /待补充|TBD|项目[123][：:]|手机号 \/ 邮箱|学校 \/ 专业|请填写/.test(output);
+    const normalize = (value: string) => value.toLowerCase().replace(/\s+/g, ' ').trim();
+    const normalizedSource = normalize(sourceText);
+    const statements = [candidate.summary, ...(candidate.education || []), ...candidate.experience, ...candidate.projects]
+      .map(value => value.trim())
+      .filter(Boolean);
+    const mappings = Array.isArray(candidate.sourceQuotes) ? candidate.sourceQuotes : [];
+    const everyStatementIsSourced = statements.every(statement => mappings.some(mapping =>
+      mapping.draftText.trim() === statement
+      && normalize(mapping.sourceQuote).length >= 6
+      && normalizedSource.includes(normalize(mapping.sourceQuote))
+    ));
+    const everySkillIsSourced = candidate.skills.every(skill => normalizedSource.includes(normalize(skill)));
+    return Boolean(candidate.summary.trim() && candidate.experience.length)
+      && !hasPlaceholders
+      && everyStatementIsSourced
+      && everySkillIsSourced
+      && getUnsupportedNumbers(candidate, sourceText).length === 0;
+  };
+
+  const buildTrustedCopyText = (candidate: ResumeDraft) => [
+    candidate.headline,
+    '',
+    '个人简介',
+    candidate.summary,
+    ...(candidate.education?.length ? ['', '教育经历', ...candidate.education.map(item => `• ${item}`)] : []),
+    '',
+    '工作经历',
+    ...candidate.experience.map(item => `• ${item}`),
+    ...(candidate.skills.length ? ['', '核心技能', candidate.skills.join(' / ')] : []),
+    ...(candidate.projects.length ? ['', '项目经历', ...candidate.projects.map(item => `• ${item}`)] : [])
+  ].join('\n');
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -491,26 +463,27 @@ const ResumeEnhancement = () => {
   const handleRestoreHistory = (item: ResumeHistoryItem | null) => {
     if (!item?.draft) return;
     setDraft(item.draft);
-    setOptimizedResume(item);
+    if (item.integrityVersion === 1) {
+      setGenerationState('ready');
+      setGenerationError('');
+      setOptimizedResume(item);
+    } else {
+      setGenerationState('unverified');
+      setGenerationError('这是旧版历史草稿，当前无法重新核验其事实来源。你可以预览，但需要基于原简历和真实 JD 重新生成后才能复制或下载。');
+    }
   };
 
   const handleAnalyze = async () => {
-    if (!analysisConsent || isProcessing) return;
+    if (!analysisConsent || isProcessing || !selectedJob || !jobDescription.trim()) return;
     setIsProcessing(true);
     setCopyState('idle');
+    setGenerationState('idle');
+    setGenerationError('');
 
     try {
+      selectJob({ ...selectedJob, source: 'real_jd', jdText: jobDescription.trim() });
       const resumeText = await getResumeText();
-      const careerProfile = assessmentData.careerProfile;
-      const targetText = [
-        jobDescription,
-        selectedJob?.title,
-        selectedJob?.description,
-        selectedJob?.requirements?.join(' '),
-        careerProfile?.primaryDirection.role,
-        careerProfile?.evidence.map(item => item.claim).join(' '),
-        careerProfile?.gaps.join(' ')
-      ].filter(Boolean).join('\n');
+      const targetText = [jobDescription, selectedJob?.title].filter(Boolean).join('\n');
 
       const resumeNorm = normalizeText(resumeText);
       const jdKeywords = extractKeywords(targetText);
@@ -531,19 +504,18 @@ const ResumeEnhancement = () => {
         skills: '只保留和岗位直接相关的技能关键词',
         projects: '给出3条项目表达，适合直接放进简历',
         keywords: '输出最该补齐的关键词',
-        copyText: '输出一份完整可复制的简历正文'
+        sourceQuotes: '为个人简介、每条教育/工作/项目内容分别提供原简历中的直接引用'
       };
 
-      const sys = '你是中文简历优化器。目标不是打分，而是生成一份可以直接复制到简历里的成品。只输出JSON，不要Markdown，不要解释。';
+      const sys = '你是中文简历优化器。只能改写用户原简历已经提供的事实，不得从职业报告或JD中新增候选人的数字、公司、职位、项目、技能、学历、能力或成果。每一段改写必须在sourceQuotes中提供原简历直接引用，格式为[{"draftText":"改写全文","sourceQuote":"原文直接引用"}]。缺失信息只写入gapNotes。只输出JSON，不要Markdown或解释。';
       const userPrompt = [
         `【简历文本】${resumeText || '（无）'}`,
         `【目标岗位】${selectedJob ? `${selectedJob.industry || '未指定行业'} / ${selectedJob.title}` : '（未选择）'}`,
         `【岗位描述】${jobDescription || '（无）'}`,
-        `【职业决策依据】${careerProfile ? `${careerProfile.primaryDirection.rationale}\n已有证据：${careerProfile.evidence.map(item => item.claim).join('、')}\n待补齐：${careerProfile.gaps.join('、')}` : '（无）'}`,
         `【命中关键词】${matchedKeywords.join('、') || '（无）'}`,
         `【缺失关键词】${missingKeywords.join('、') || '（无）'}`,
         `【输出字段】${JSON.stringify(aiPrompt)}`,
-        '请基于以上信息输出JSON，字段为 headline, summary, experience, skills, projects, keywords, gapNotes, copyText。'
+        '请基于以上信息输出JSON，字段为 headline, summary, education, experience, skills, projects, keywords, gapNotes, sourceQuotes。skills中的每项也必须逐字出现在原简历。任何无法从原简历确认的事实都不得写入正文。'
       ].join('\n');
 
       let parsedDraft: ResumeDraft | null = null;
@@ -577,24 +549,37 @@ const ResumeEnhancement = () => {
             projects: Array.isArray(raw.projects) ? raw.projects.map(String).slice(0, 4) : [],
             keywords: Array.isArray(raw.keywords) ? raw.keywords.map(String).slice(0, 8) : missingKeywords,
             gapNotes: Array.isArray(raw.gapNotes) ? raw.gapNotes.map(String).slice(0, 4) : [],
-            copyText: String(raw.copyText || '')
+            copyText: '',
+            sourceQuotes: Array.isArray(raw.sourceQuotes) ? raw.sourceQuotes.map((item: unknown) => {
+              const mapping = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+              return { draftText: String(mapping.draftText || ''), sourceQuote: String(mapping.sourceQuote || '') };
+            }).filter((item: { draftText: string; sourceQuote: string }) => item.draftText && item.sourceQuote).slice(0, 16) : []
           };
         }
       } catch {
         parsedDraft = null;
       }
 
-      const finalDraft = parsedDraft || buildFallbackDraft(resumeText, jdKeywords.length ? jdKeywords : missingKeywords);
-      if (!finalDraft.copyText) {
-        finalDraft.copyText = buildFallbackDraft(resumeText, jdKeywords.length ? jdKeywords : missingKeywords).copyText;
+      const sourceText = resumeText;
+      if (!parsedDraft || !isUsableDraft(parsedDraft, sourceText)) {
+        setDraft(null);
+        setGenerationState('failed');
+        setGenerationError(parsedDraft
+          ? '本次生成结果包含无法由原简历核验的内容，系统已拦截。请补充真实经历后重试。'
+          : 'AI 暂时未返回有效简历。原文已保留，没有生成或保存虚构内容，请稍后重试。');
+        return;
       }
+      const finalDraft = parsedDraft;
+      finalDraft.copyText = buildTrustedCopyText(finalDraft);
 
       const beforeSummary = resumeText
         ? String(resumeText).slice(0, 180)
         : '未提供可解析的简历文本';
 
       setDraft(finalDraft);
+      setGenerationState('ready');
       setOptimizedResume({
+        integrityVersion: 1,
         originalFile: uploadedFile || assessmentData.resume,
         targetJob: selectedJob,
         analysisResult: {
@@ -605,8 +590,8 @@ const ResumeEnhancement = () => {
             {
               category: '简历成品',
               severity: 'low',
-              issue: '页面已从分析页改成可复制的优化简历页',
-              suggestion: '直接复制右侧简历草稿到投递版本中。'
+              issue: '已生成一版基于原文的改写草稿',
+              suggestion: '投递前逐条核对时间、数字、职责和成果。'
             },
             {
               category: '岗位关键词',
@@ -624,8 +609,8 @@ const ResumeEnhancement = () => {
             {
               category: '导出文件',
               severity: 'low',
-              issue: '已支持下载 Word 简历',
-              suggestion: '下载后可直接投递，不需要再手动拼版。'
+              issue: '已支持下载 Word 简历草稿',
+              suggestion: '下载后仍需本人核对事实与排版。'
             }
           ],
           starOptimization: {
@@ -653,6 +638,7 @@ const ResumeEnhancement = () => {
 
       if (isAuthenticated && user?.id) {
         const savedRecord: ResumeHistoryItem = {
+          integrityVersion: 1,
           optimizedAt: new Date().toISOString(),
           targetJob: selectedJob ? { title: selectedJob.title, industry: selectedJob.industry } : null,
           draft: finalDraft,
@@ -732,7 +718,7 @@ const ResumeEnhancement = () => {
     navigate('/interview');
   };
 
-  const showReadyState = useMemo(() => Boolean(draft), [draft]);
+  const showReadyState = useMemo(() => Boolean(draft) && generationState !== 'failed', [draft, generationState]);
   const latestHistory = resumeHistory[0] || optimizedResume || null;
 
   return (
@@ -747,9 +733,9 @@ const ResumeEnhancement = () => {
           <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
             <div className="max-w-3xl">
               <p className="mb-3 text-sm font-semibold uppercase tracking-[0.3em] text-emerald-300">Resume Optimization</p>
-              <h1 className="text-4xl font-bold text-white">把简历改成可直接投递的成品</h1>
+              <h1 className="text-4xl font-bold text-white">生成可核对的岗位化简历草稿</h1>
               <p className="mt-4 text-lg leading-8 text-gray-300">
-                只做一件事：围绕一个目标岗位，重写个人简介、经历和技能，让用户能直接复制使用。
+                基于原简历事实和真实 JD 改写内容；不确定的信息不会自动补写。
               </p>
             </div>
 
@@ -766,6 +752,10 @@ const ResumeEnhancement = () => {
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-gray-400">简历来源</span>
                   <span className="text-white">{hasResumeSource ? '已就绪' : '待上传'}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-gray-400">真实 JD</span>
+                  <span className={jobDescription.trim() ? 'text-emerald-300' : 'text-yellow-300'}>{jobDescription.trim() ? '已提供' : '待粘贴'}</span>
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-gray-400">输出结果</span>
@@ -939,21 +929,27 @@ const ResumeEnhancement = () => {
             <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6 shadow-lg">
               <h2 className="mb-3 text-2xl font-bold text-white">2. 目标岗位</h2>
               <p className="mb-4 text-gray-300">
-                {selectedJob ? '已自动带入岗位信息，可按需微调。' : '粘贴目标岗位描述，系统会据此重写简历。'}
+                {selectedJob
+                  ? `已选择待验证方向「${selectedJob.title}」。请再粘贴招聘页面中的真实 JD。`
+                  : '请先确定目标方向，并粘贴招聘页面中的真实 JD。'}
               </p>
               <textarea
                 value={jobDescription}
-                onChange={(e) => setJobDescription(e.target.value)}
-                placeholder="请粘贴目标岗位的职位描述..."
+                onChange={(e) => {
+                  setJobDescription(e.target.value.slice(0, 2000));
+                  setGenerationState('idle');
+                  setGenerationError('');
+                }}
+                placeholder="粘贴真实招聘 JD，包括职责、要求和加分项。岗位策略摘要不等于真实 JD。"
                 rows={9}
                 className="w-full resize-none rounded-xl border border-gray-600 bg-gray-700 p-4 text-white placeholder-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
               <div className="mt-3 flex items-center justify-between text-sm text-gray-400">
                 <span>{jobDescription.length}/2000</span>
-                {jobDescription && (
+                {jobDescription.trim() && (
                   <span className="inline-flex items-center text-emerald-300">
                     <Target className="mr-1 h-4 w-4" />
-                    已识别目标岗位
+                    已提供真实 JD 文本
                   </span>
                 )}
               </div>
@@ -998,11 +994,11 @@ const ResumeEnhancement = () => {
             <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6 shadow-lg">
               <label className="mb-4 flex cursor-pointer items-start gap-3 rounded-xl border border-gray-700 bg-gray-900/50 p-4 text-sm leading-6 text-gray-300">
                 <input type="checkbox" checked={analysisConsent} onChange={(event) => setAnalysisConsent(event.target.checked)} className="mt-1 h-4 w-4 accent-emerald-400" />
-                <span>我同意将简历文本、目标岗位描述和职业报告发送至 DeepSeek 生成优化稿。若上传文件，文件会先发送至文本解析服务提取内容；未勾选时不会发送。</span>
+                <span>我同意将简历文本、真实 JD 和职业报告发送至 DeepSeek 生成待核对草稿。若上传文件，文件会先发送至文本解析服务提取内容；未勾选时不会发送。</span>
               </label>
               <button
                 onClick={handleAnalyze}
-                disabled={!hasResumeSource || isProcessing || !analysisConsent}
+                disabled={!hasResumeSource || !selectedJob || !jobDescription.trim() || isProcessing || !analysisConsent}
                 className="inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 px-6 py-4 text-lg font-semibold text-white transition hover:from-purple-700 hover:to-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isProcessing ? (
@@ -1018,8 +1014,18 @@ const ResumeEnhancement = () => {
                 )}
               </button>
               <p className="mt-3 text-center text-sm text-gray-400">
-                输出是一份可编辑、可复制并可下载的简历草稿。
+                输出是待本人核对的草稿；系统不会在 AI 失败时生成替代成品。
               </p>
+              {!selectedJob && (
+                <button type="button" onClick={() => navigate('/jobs')} className="mt-3 w-full text-sm font-medium text-emerald-300 hover:text-emerald-200">
+                  先选择一个目标岗位方向
+                </button>
+              )}
+              {generationError && (
+                <div role="alert" className={`mt-4 rounded-xl border p-4 text-sm leading-6 ${generationState === 'unverified' ? 'border-yellow-700/60 bg-yellow-950/30 text-yellow-100' : 'border-red-700/60 bg-red-950/30 text-red-200'}`}>
+                  {generationError}
+                </div>
+              )}
             </div>
           </div>
 
@@ -1033,6 +1039,9 @@ const ResumeEnhancement = () => {
                 </div>
               ) : (
                 <div className="space-y-5">
+                  <div className="rounded-xl border border-yellow-700/60 bg-yellow-950/30 p-4 text-sm leading-6 text-yellow-100">
+                    这是基于现有材料的改写草稿。投递前请逐条核对时间、公司、职责、技能和数字，确认全部属实。
+                  </div>
                   <div className="rounded-xl border border-emerald-700 bg-emerald-900/20 p-4">
                     <p className="text-sm font-semibold uppercase tracking-[0.25em] text-emerald-300">Headline</p>
                     <p className="mt-2 text-xl font-bold text-white">{draft.headline}</p>
@@ -1096,7 +1105,7 @@ const ResumeEnhancement = () => {
             <div className="rounded-2xl border border-gray-700 bg-gray-800/50 p-6 shadow-lg">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-2xl font-bold text-white">4. 可复制文本</h2>
-                {draft && (
+                {draft && generationState === 'ready' && (
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleCopy}
@@ -1125,11 +1134,11 @@ const ResumeEnhancement = () => {
           </div>
         </section>
 
-        {draft && (
+        {draft && generationState === 'ready' && (
           <section className="mt-8 rounded-2xl border border-gray-700 bg-gradient-to-r from-purple-600 to-blue-600 p-6 text-white shadow-lg">
             <h2 className="text-2xl font-bold">下一步：开始面试训练</h2>
             <p className="mt-2 text-blue-100">
-              先用这版简历投递，再围绕同一岗位方向练习回答、案例和追问。
+              核对这版简历的全部事实后，再围绕同一岗位和真实 JD 练习回答、案例和追问。
             </p>
             <div className="mt-5">
               <button

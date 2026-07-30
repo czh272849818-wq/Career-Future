@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Mail } from 'lucide-react';
+import React, { useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Login = () => {
@@ -11,6 +11,10 @@ const Login = () => {
   const [error, setError] = useState('');
 
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = typeof location.state?.from === 'string' && location.state.from.startsWith('/')
+    ? location.state.from
+    : '/dashboard';
   const { login } = useAuth();
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
@@ -19,7 +23,7 @@ const Login = () => {
     setLoading('email');
     try {
       await login(identifier, password);
-      navigate('/dashboard');
+      navigate(from, { replace: true });
     } catch (err: any) {
       setError(err.message || '登录失败，请检查账号和密码');
     } finally {
@@ -94,7 +98,7 @@ const Login = () => {
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-400">
                 没有账号？{' '}
-                <Link to="/register" className="font-medium text-emerald-400 hover:text-emerald-300">
+                <Link to="/register" state={{ from }} className="font-medium text-emerald-400 hover:text-emerald-300">
                   创建邮箱账号
                 </Link>
               </p>

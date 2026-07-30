@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Video, 
@@ -30,9 +30,8 @@ import {
   UserPlus
 } from 'lucide-react';
 import { useAssessment } from '../contexts/AssessmentContext';
-import { useWorkflow } from '../contexts/WorkflowContext';
+import { useWorkflow, type InterviewReportRecord } from '../contexts/WorkflowContext';
 import { useAuth } from '../contexts/AuthContext';
-import BackButton from '../components/ui/BackButton';
 import { DEFAULT_LLM_MODEL, DEFAULT_TEMPERATURE } from '../llm/config';
 import { apiUrl } from '../api';
 
@@ -77,10 +76,19 @@ interface InterviewQuestionPack {
 
 type InterviewPromptStage = 'main' | 'followup';
 
+const pickMandarinFemaleVoice = (voices: SpeechSynthesisVoice[]) => {
+  const mandarinVoices = voices.filter(voice => /^zh(?:-|_)/i.test(voice.lang));
+  const femaleName = /xiao[- ]?xiao|xiao[- ]?yi|ting[- ]?ting|mei[- ]?jia|sin[- ]?ji|hui[- ]?hui|yao[- ]?yao|晓晓|晓伊|婷婷|美佳|慧慧|瑶瑶|female|女声/i;
+  return mandarinVoices.find(voice => femaleName.test(voice.name))
+    || mandarinVoices.find(voice => /mandarin|普通话|中文/i.test(voice.name))
+    || mandarinVoices[0]
+    || null;
+};
+
 const InterviewSimulation = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
-  const { selectedJob, assessmentData } = useWorkflow();
+  const { selectedJob, assessmentData, interviewReports, saveInterviewReport } = useWorkflow();
   const { getIndustryPositions } = useAssessment();
   const industryMap = getIndustryPositions();
   const industryOptions = Object.keys(industryMap);
@@ -108,6 +116,7 @@ const InterviewSimulation = () => {
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isMicOn, setIsMicOn] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [interviewerVoiceName, setInterviewerVoiceName] = useState('');
   const [cameraStatus, setCameraStatus] = useState<'idle' | 'active' | 'error'>('idle');
   const [cameraError, setCameraError] = useState('');
   const [micStatus, setMicStatus] = useState<'idle' | 'active' | 'error'>('idle');
@@ -118,16 +127,17 @@ const InterviewSimulation = () => {
   const [llmQuestions, setLlmQuestions] = useState<Record<string, string[]>>({});
   const [questionPacks, setQuestionPacks] = useState<Partial<Record<'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements', InterviewQuestionPack>>>({});
   const [generating, setGenerating] = useState(false);
+  const [questionSource, setQuestionSource] = useState<'ai' | 'fixed' | null>(null);
   const [aiConsent, setAiConsent] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [setupError, setSetupError] = useState('');
   const [selectedIndustryLocal, setSelectedIndustryLocal] = useState(selectedJob?.industry || '');
   const [selectedPositionLocal, setSelectedPositionLocal] = useState(selectedJob?.title || '');
-  const [jobDescription, setJobDescription] = useState(selectedJob?.description || '');
+  const [jobDescription, setJobDescription] = useState(selectedJob?.jdText || '');
   const [jobContext, setJobContext] = useState<JobContextSection[]>([
     {
       title: '核心职责',
-      items: Array.isArray(selectedJob?.requirements) ? selectedJob.requirements.slice(0, 3) : ['']
+      items: ['']
     },
     {
       title: '必备技能',
@@ -146,11 +156,11 @@ const InterviewSimulation = () => {
     if (!selectedJob) return;
     setSelectedIndustryLocal(selectedJob.industry || '');
     setSelectedPositionLocal(selectedJob.title || '');
-    setJobDescription(selectedJob.description || '');
+    setJobDescription(selectedJob.jdText || '');
     setJobContext([
       {
         title: '核心职责',
-        items: Array.isArray(selectedJob.requirements) ? selectedJob.requirements.slice(0, 3) : ['']
+        items: ['']
       },
       {
         title: '必备技能',
@@ -179,7 +189,7 @@ const InterviewSimulation = () => {
       selectedPositionLocal ? `岗位：${selectedPositionLocal}` : '',
       jobDescription.trim() ? `岗位介绍：${jobDescription.trim()}` : '',
       sectionText.length ? `岗位结构：\n${sectionText.join('\n\n')}` : '',
-      careerProfile ? `职业决策：主方向=${careerProfile.primaryDirection.role}\n已有证据=${careerProfile.evidence.map(item => item.claim).join('、')}\n待补齐=${careerProfile.gaps.join('、')}` : '',
+      careerProfile ? `职业决策：主方向=${careerProfile.primaryDirection.role}\n当前信息与偏好信号=${careerProfile.evidence.map(item => item.claim).join('、')}\n待补齐=${careerProfile.gaps.join('、')}` : '',
       assessmentData?.aiAnalysis ? `候选人报告摘要：${String(assessmentData.aiAnalysis).slice(0, 500)}` : ''
     ].filter(Boolean);
     return parts.join('\n');
@@ -297,18 +307,35 @@ const InterviewSimulation = () => {
     return sections[sections.length - 1].label;
   };
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    const loadVoice = () => {
+      const voice = pickMandarinFemaleVoice(window.speechSynthesis.getVoices());
+      setInterviewerVoiceName(voice?.name || '');
+    };
+    loadVoice();
+    window.speechSynthesis.addEventListener('voiceschanged', loadVoice);
+    return () => window.speechSynthesis.removeEventListener('voiceschanged', loadVoice);
+  }, []);
+
   const speakQuestion = (text: string) => {
-    if (typeof window === 'undefined' || !window.speechSynthesis || !text.trim()) return;
-    if (!isSpeakerOn) return;
+    if (typeof window === 'undefined' || !window.speechSynthesis || !text.trim()) return false;
+    if (!isSpeakerOn) return false;
     try {
+      const voices = window.speechSynthesis.getVoices();
+      if (!voices.length) return false;
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'zh-CN';
-      utterance.rate = 0.95;
-      utterance.pitch = 1;
+      utterance.voice = pickMandarinFemaleVoice(voices);
+      utterance.rate = 0.9;
+      utterance.pitch = 1.08;
+      utterance.volume = 1;
       window.speechSynthesis.speak(utterance);
+      return true;
     } catch (error) {
       console.warn('[interview tts] failed:', error);
+      return false;
     }
   };
   
@@ -339,10 +366,18 @@ const InterviewSimulation = () => {
       };
       const flattened = flattenQuestionPack(normalizedPack).slice(0, Math.max(count, 8));
       if (!flattened.length) throw new Error('Invalid JSON');
-      setQuestionPacks(prev => ({ ...prev, [type]: normalizedPack.opening.length || normalizedPack.behavior.length || normalizedPack.deep.length || normalizedPack.reask.length ? normalizedPack : ensurePack(type, flattened) }));
+      const nextPack = normalizedPack.opening.length || normalizedPack.behavior.length || normalizedPack.deep.length || normalizedPack.reask.length ? normalizedPack : ensurePack(type, flattened);
+      setQuestionPacks(prev => ({ ...prev, [type]: nextPack }));
       setLlmQuestions(prev => ({ ...prev, [type]: flattened }));
+      setQuestionSource('ai');
+      return nextPack;
     } catch (e) {
       console.warn('[DeepSeek] interview question generation failed:', e);
+      const fallbackPack = buildFallbackPack(type);
+      setQuestionPacks(prev => ({ ...prev, [type]: fallbackPack }));
+      setQuestionSource('fixed');
+      setSetupError('AI 题库暂时不可用，本次将使用固定题库，训练中不会替换题目。');
+      return fallbackPack;
     } finally {
       setGenerating(false);
     }
@@ -516,21 +551,6 @@ const InterviewSimulation = () => {
     ]
   };
 
-  // 初始化摄像头
-  useEffect(() => {
-    if (currentStep === 'setup' || currentStep === 'rounds_config' || currentStep === 'interview') {
-      initializeCamera();
-    }
-    return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
-      }
-      previewStreamRef.current?.getTracks().forEach(track => track.stop());
-      recordingStreamRef.current?.getTracks().forEach(track => track.stop());
-    };
-  }, [currentStep]);
-
   // 计时器
   useEffect(() => {
     if (isTimerActive && timeRemaining > 0) {
@@ -566,9 +586,8 @@ const InterviewSimulation = () => {
         ? followupPrompts[followupKey] || buildFollowupQuestion(currentQuestion, currentAnswer, questionStage)
         : currentQuestion;
     if (promptText === lastSpokenQuestionRef.current) return;
-    lastSpokenQuestionRef.current = promptText;
-    speakQuestion(promptText);
-  }, [currentStep, interviewType, currentQuestionIndex, currentPromptStage, questionPacks, llmQuestions, isSpeakerOn, followupPrompts, currentRoundIndex, interviewRounds, currentAnswer]);
+    if (speakQuestion(promptText)) lastSpokenQuestionRef.current = promptText;
+  }, [currentStep, interviewType, currentQuestionIndex, currentPromptStage, questionPacks, llmQuestions, isSpeakerOn, interviewerVoiceName, followupPrompts, currentRoundIndex, interviewRounds, currentAnswer]);
 
   useEffect(() => () => releaseMedia(), []);
 
@@ -780,9 +799,9 @@ const InterviewSimulation = () => {
     }
   };
 
-  const startInterview = (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements') => {
+  const startInterview = async (type: 'comprehensive' | 'basic_quality' | 'industry_knowledge' | 'position_requirements') => {
     if (!isAuthenticated) {
-      navigate('/login');
+      navigate('/login', { state: { from: '/interview' } });
       return;
     }
 
@@ -803,7 +822,6 @@ const InterviewSimulation = () => {
     }
     setSetupError('');
     
-    const selectedType = interviewTypes.find(t => t.id === type);
     setInterviewType(type);
     
     // 如果是综合面试且选择了多轮面试，进入轮次配置
@@ -818,15 +836,13 @@ const InterviewSimulation = () => {
         setInterviewRounds(defaultRounds);
       }
     } else {
-      // 直接开始单轮面试
+      await generateInterviewQuestions(type);
       setCurrentStep('interview');
       setCurrentQuestionIndex(0);
       setCurrentRoundIndex(0);
       setTimeRemaining(180);
       setIsTimerActive(true);
       setDigitalHumanMode('ask');
-      // 生成该面试类型的题库（DeepSeek）
-      generateInterviewQuestions(type);
     }
   };
 
@@ -838,9 +854,11 @@ const InterviewSimulation = () => {
     }
 
     try {
-      const baseStream = previewStreamRef.current || await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const previewAudioTracks = previewStreamRef.current?.getAudioTracks() || [];
       recordingStreamRef.current?.getTracks().forEach(track => track.stop());
-      const stream = baseStream.clone();
+      const stream = previewAudioTracks.length
+        ? new MediaStream(previewAudioTracks.map(track => track.clone()))
+        : await navigator.mediaDevices.getUserMedia({ audio: true });
       recordingStreamRef.current = stream;
       audioChunksRef.current = [];
 
@@ -983,7 +1001,7 @@ const InterviewSimulation = () => {
     ));
     const evidenceUsed = [
       ...(selectedJob ? [`目标岗位方向：${selectedJob.title}`] : []),
-      ...(assessmentData.careerProfile ? assessmentData.careerProfile.evidence.slice(0, 2).map(item => `职业报告证据：${item.claim}`) : []),
+      ...(assessmentData.careerProfile ? assessmentData.careerProfile.evidence.slice(0, 2).map(item => `职业报告信号：${item.claim}`) : []),
       ...(jobDescription.trim() ? ['已使用岗位介绍与职责信息'] : [])
     ];
     const missingEvidence = [
@@ -1003,7 +1021,7 @@ const InterviewSimulation = () => {
         selectedJob ? `本次回答围绕「${selectedJob.title}」岗位方向展开` : '建议先锁定一个岗位方向，再进行针对性面试训练',
         `本次记录 ${mainAnswerCount} 个主答、${followupAnswerCount} 个追问，共 ${totalAnsweredCount} 条有效回答`,
         answeredStages.length ? `已完成环节：${answeredStages.join('、')}` : '本次未留下可用回答记录',
-        assessmentData.careerProfile ? '已使用职业决策报告中的已有证据与待补齐项' : '尚未加载职业决策报告，后续可补充后再练习',
+        assessmentData.careerProfile ? '已使用职业决策报告中的当前信号与待补齐项' : '尚未加载职业决策报告，后续可补充后再练习',
         ...(isMultiRound && interviewRounds.some(r => r.type === 'group') ? [
           '多轮/群面流程已覆盖，后续应重点训练倾听、总结和推动共识'
         ] : [])
@@ -1021,6 +1039,12 @@ const InterviewSimulation = () => {
     };
     
     setInterviewResult(result);
+    saveInterviewReport({
+      ...result,
+      id: `interview-${Date.now()}`,
+      completedAt: result.completedAt.toISOString(),
+      targetJob: selectedJob ? { title: selectedJob.title, industry: selectedJob.industry } : null
+    });
     setCurrentStep('result');
     setDigitalHumanMode('idle');
   };
@@ -1044,6 +1068,18 @@ const InterviewSimulation = () => {
     setDigitalHumanMode('idle');
   };
 
+  const openSavedReport = (report: InterviewReportRecord) => {
+    const validType = ['comprehensive', 'basic_quality', 'industry_knowledge', 'position_requirements'].includes(report.type || '')
+      ? report.type as typeof interviewType
+      : null;
+    setInterviewType(validType);
+    setInterviewResult({
+      ...report,
+      completedAt: new Date(report.completedAt)
+    });
+    setCurrentStep('result');
+  };
+
   const downloadInterviewReport = () => {
     if (!interviewResult) return;
     const lines = [
@@ -1052,8 +1088,7 @@ const InterviewSimulation = () => {
       `目标岗位：${selectedJob ? `${selectedJob.industry || '未指定行业'} / ${selectedJob.title}` : '未选择'}`,
       '',
       '回答记录：',
-      ...Object.entries(answers).map(([key, value]) => `主答 ${key}: ${value}`),
-      ...Object.entries(followupAnswers).map(([key, value]) => `追问 ${key}: ${value}`),
+      ...interviewResult.answerRecords.map((value, index) => `回答 ${index + 1}: ${value}`),
       '',
       '已完成环节：',
       ...interviewResult.completedStages.map(stage => `- ${stage}`),
@@ -1493,7 +1528,8 @@ const InterviewSimulation = () => {
     const currentRound = interviewRounds[currentRoundIndex];
     const questions = currentRound ? currentRound.questions : getActiveQuestions(interviewType);
     const currentQuestion = questions[currentQuestionIndex];
-    const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
+    const answeredMainQuestions = questions.filter((_, index) => Boolean(answers[getAnswerKey(currentRound, index)])).length;
+    const progress = questions.length ? (answeredMainQuestions / questions.length) * 100 : 0;
     const isGroupInterview = currentRound?.type === 'group';
     const interviewerName = selectedPositionLocal || selectedJob?.title || 'AI 面试官';
     const questionStage = getQuestionStageLabel(interviewType, currentQuestionIndex);
@@ -1512,9 +1548,12 @@ const InterviewSimulation = () => {
               <div className="flex items-center space-x-3">
                 <Video className="h-6 w-6 text-blue-600" />
                 <div>
-                  <span className="font-semibold text-white">
+              <span className="font-semibold text-white">
                     {interviewTypes.find(t => t.id === interviewType)?.name}
                   </span>
+                  {!currentRound && questionSource && (
+                    <div className="mt-1 text-xs text-gray-400">{questionSource === 'ai' ? 'AI 定制题库，训练中不会换题' : '固定题库，训练中不会换题'}</div>
+                  )}
                   {isMultiRound && currentRound && (
                     <div className="text-sm text-gray-400">
                       {currentRound.name} ({currentRoundIndex + 1}/{interviewRounds.length})
@@ -1536,12 +1575,12 @@ const InterviewSimulation = () => {
             <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
               <div
                 className="bg-gradient-to-r from-blue-400 to-purple-400 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${progress}%` }}
+                style={{ width: `${Math.min(100, progress)}%` }}
               ></div>
             </div>
             <div className="flex justify-between text-sm text-gray-400">
               <span>问题 {currentQuestionIndex + 1} / {questions.length}</span>
-              <span>{Math.round(progress)}% 完成</span>
+              <span>{Math.min(100, Math.round(progress))}% 已回答</span>
             </div>
           </div>
 
@@ -1656,7 +1695,7 @@ const InterviewSimulation = () => {
                       </div>
                       <div className="mt-4 flex items-center justify-between">
                         <div className="min-w-0">
-                          <p className="text-xs uppercase tracking-[0.3em] text-purple-300">AI数字人面试官</p>
+                          <p className="text-xs uppercase tracking-[0.3em] text-purple-300">AI 面试官</p>
                           <h3 className="truncate text-lg font-semibold text-white">{interviewerName}</h3>
                         </div>
                         <div className={`rounded-full px-3 py-1 text-xs ${
@@ -1676,7 +1715,7 @@ const InterviewSimulation = () => {
                           <div className={`h-2 rounded-full ${digitalHumanMode === 'ask' ? 'w-3/4 bg-gradient-to-r from-purple-500 to-cyan-400 animate-pulse' : 'w-1/3 bg-gray-600'}`} />
                         </div>
                         <p className="mt-2 text-[11px] leading-5 text-gray-400">
-                          这是数字人面试官的稳定占位层。摄像头不可用时，仍保留提问和状态反馈。
+                          面试官通过文字和浏览器语音提问，不提供视频数字人能力。
                         </p>
                       </div>
                       <div className="mt-4 grid grid-cols-3 gap-2">
@@ -1699,6 +1738,7 @@ const InterviewSimulation = () => {
                       <p>岗位：{selectedPositionLocal || '未选择'}</p>
                       <p>状态：{isRecording ? '正在听取回答' : digitalHumanMode === 'ask' ? '正在提问' : '等待开始'}</p>
                       <p>语音模式：{voiceMode === 'auto' ? '自动识别' : '按住说话'}</p>
+                      <p>提问声音：女播音主持声{interviewerVoiceName ? `（${interviewerVoiceName}）` : ''}</p>
                       <p>摄像头：{cameraStatus === 'active' ? '已开启' : cameraStatus === 'error' ? '权限异常' : '待开启'}</p>
                       <p>麦克风：{micStatus === 'active' ? '已开启' : micStatus === 'error' ? '权限异常' : '待开启'}</p>
                       {cameraError && <p className="text-xs text-red-300">{cameraError}</p>}
@@ -1713,8 +1753,8 @@ const InterviewSimulation = () => {
                     </p>
                     <p className="mt-3 text-sm text-gray-400">
                       {digitalHumanMode === 'ask'
-                        ? '数字人会基于行业、岗位介绍和职责持续追问。'
-                        : '点击开始面试后，数字人面试官将进入提问状态。'}
+                        ? 'AI 面试官会基于行业、岗位介绍和职责持续追问。'
+                        : '点击开始面试后，AI 面试官将进入提问状态。'}
                     </p>
                   </div>
                 </div>
@@ -1916,6 +1956,26 @@ const InterviewSimulation = () => {
           </div>
         </div>
 
+        {interviewReports.length > 0 && (
+          <section className="mb-8 border border-gray-700 bg-gray-800/50 p-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-white">最近训练</h2>
+                <p className="mt-1 text-sm text-gray-400">云端保留最近 10 次报告，刷新后仍可查看。</p>
+              </div>
+              <span className="text-sm text-gray-400">{interviewReports.length} 次</span>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {interviewReports.slice(0, 4).map(report => (
+                <button key={report.id} type="button" onClick={() => openSavedReport(report)} className="border border-gray-700 bg-gray-900/60 p-4 text-left transition hover:border-purple-400">
+                  <p className="font-medium text-white">{report.targetJob?.title || '通用面试训练'}</p>
+                  <p className="mt-1 text-sm text-gray-400">{new Date(report.completedAt).toLocaleString()} · {report.answerRecords.length} 条回答</p>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* 面试类型选择 */}
           <div className="lg:col-span-2 space-y-6">
@@ -1929,7 +1989,7 @@ const InterviewSimulation = () => {
                   digitalHumanMode === 'ask' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-gray-700 text-gray-300'
                 }`}>
                   <div className="h-2 w-2 rounded-full bg-current" />
-                  {digitalHumanMode === 'ask' ? '数字人面试官已就位' : '待开始'}
+                  {digitalHumanMode === 'ask' ? 'AI 面试官已就位' : '待开始'}
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1945,6 +2005,9 @@ const InterviewSimulation = () => {
                     className="w-full rounded-lg border border-gray-600 bg-gray-700 p-3 text-white focus:border-purple-500 focus:outline-none"
                   >
                     <option value="">请选择行业</option>
+                    {selectedIndustryLocal && !industryOptions.includes(selectedIndustryLocal) && (
+                      <option value={selectedIndustryLocal}>{selectedIndustryLocal}（已带入）</option>
+                    )}
                     {industryOptions.map((industry) => (
                       <option key={industry} value={industry}>{industry}</option>
                     ))}
@@ -1958,6 +2021,9 @@ const InterviewSimulation = () => {
                     className="w-full rounded-lg border border-gray-600 bg-gray-700 p-3 text-white focus:border-purple-500 focus:outline-none"
                   >
                     <option value="">{selectedIndustryLocal ? '请选择岗位' : '请先选择行业'}</option>
+                    {selectedPositionLocal && !availablePositions.includes(selectedPositionLocal) && (
+                      <option value={selectedPositionLocal}>{selectedPositionLocal}（已带入）</option>
+                    )}
                     {availablePositions.map((position) => (
                       <option key={position} value={position}>{position}</option>
                     ))}
@@ -2098,10 +2164,10 @@ const InterviewSimulation = () => {
                     
                     <button
                       onClick={() => startInterview(type.id as any)}
-                      disabled={!aiConsent || (!(selectedIndustryLocal && selectedPositionLocal) && type.id !== 'basic_quality')}
+                      disabled={generating || !aiConsent || (!(selectedIndustryLocal && selectedPositionLocal) && type.id !== 'basic_quality')}
                       className="w-full flex items-center justify-center text-blue-400 text-sm font-medium group-hover:text-blue-300 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {type.id === 'basic_quality' ? '开始基础面试' : '开始针对性面试'}
+                      {generating ? '正在准备固定题库...' : type.id === 'basic_quality' ? '开始基础面试' : '开始针对性面试'}
                       <ArrowRight className="h-3 w-3 ml-1 group-hover:translate-x-1 transition-transform" />
                     </button>
                   </div>
@@ -2112,6 +2178,13 @@ const InterviewSimulation = () => {
             {/* 设备检测 */}
             <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-gray-700">
               <h2 className="text-xl font-bold text-white mb-4">设备检测</h2>
+              <p className="mb-4 text-sm leading-6 text-gray-400">仅在你点击检测或开始录音时请求摄像头和麦克风权限。文字回答不需要设备权限。</p>
+              {cameraStatus === 'idle' && micStatus === 'idle' && (
+                <button type="button" onClick={() => void initializeCamera()} className="mb-5 inline-flex items-center rounded-lg border border-gray-600 px-4 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700">
+                  <Video className="mr-2 h-4 w-4" />
+                  检测摄像头和麦克风
+                </button>
+              )}
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* 摄像头预览 */}

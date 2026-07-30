@@ -64,10 +64,10 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                 tr: ({ children }) => <tr className="border-b border-gray-700">{children}</tr>,
                 th: ({ children }) => <th className="border border-gray-700 px-3 py-2 font-semibold">{children}</th>,
                 td: ({ children }) => <td className="border border-gray-700 px-3 py-2 align-top">{children}</td>,
-                code: ({ inline, children }) => inline ? (
-                  <code className="rounded bg-gray-900 px-1.5 py-0.5 text-[0.85em] text-emerald-300">{children}</code>
-                ) : (
+                code: ({ className, children }) => className ? (
                   <code className="block whitespace-pre-wrap rounded-xl bg-gray-950 px-4 py-3 text-xs text-gray-200">{children}</code>
+                ) : (
+                  <code className="rounded bg-gray-900 px-1.5 py-0.5 text-[0.85em] text-emerald-300">{children}</code>
                 ),
                 pre: ({ children }) => <pre className="my-3 overflow-x-auto rounded-xl bg-gray-950 p-0">{children}</pre>,
                 blockquote: ({ children }) => <blockquote className="my-3 border-l-4 border-purple-500 pl-4 text-gray-300">{children}</blockquote>

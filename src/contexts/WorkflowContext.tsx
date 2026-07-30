@@ -71,6 +71,23 @@ export interface JobRecommendation {
   city?: string;
   experienceLevel?: string;
   workMode?: string;
+  source?: 'strategy' | 'real_jd';
+  jdText?: string;
+}
+
+export interface InterviewReportRecord {
+  id: string;
+  type: string | null;
+  isMultiRound: boolean;
+  rounds: number;
+  completedAt: string;
+  completedStages: string[];
+  evidenceUsed: string[];
+  missingEvidence: string[];
+  feedback: string[];
+  improvements: string[];
+  answerRecords: string[];
+  targetJob?: { title: string; industry?: string } | null;
 }
 
 interface WorkflowContextType {
@@ -80,6 +97,7 @@ interface WorkflowContextType {
   selectedJob: JobRecommendation | null;
   optimizedResume: any;
   careerPlan: any;
+  interviewReports: InterviewReportRecord[];
   reloadWorkflowState: () => Promise<void>;
   
   // Actions
@@ -89,6 +107,7 @@ interface WorkflowContextType {
   selectJob: (job: JobRecommendation) => void;
   setOptimizedResume: (resume: any) => void;
   setCareerPlan: (plan: any) => void;
+  saveInterviewReport: (report: InterviewReportRecord) => void;
   resetWorkflow: () => void;
 }
 
@@ -104,6 +123,7 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
   const [selectedJob, setSelectedJob] = useState<JobRecommendation | null>(null);
   const [optimizedResumeState, setOptimizedResumeState] = useState<any>(null);
   const [careerPlanState, setCareerPlanState] = useState<any>(null);
+  const [interviewReports, setInterviewReports] = useState<InterviewReportRecord[]>([]);
   const userId = user?.id || null;
 
   const loadRemoteWorkflowState = useCallback(async (remoteUserId: string) => {
@@ -136,6 +156,7 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
     setSelectedJob(remote.selectedJob || null);
     setOptimizedResumeState(remote.optimizedResume || null);
     setCareerPlanState(remote.careerPlan || null);
+    setInterviewReports(Array.isArray(remote.interviewReports) ? remote.interviewReports : []);
   }, [isAuthReady, loadRemoteWorkflowState, userId]);
 
   const updateAssessmentData = useCallback((data: Partial<AssessmentData>) => {
@@ -166,6 +187,14 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
     void persistWorkflowState({ careerPlan: plan });
   }, [persistWorkflowState]);
 
+  const saveInterviewReport = useCallback((report: InterviewReportRecord) => {
+    setInterviewReports(previous => {
+      const next = [report, ...previous.filter(item => item.id !== report.id)].slice(0, 10);
+      void persistWorkflowState({ interviewReports: next });
+      return next;
+    });
+  }, [persistWorkflowState]);
+
   const resetWorkflow = useCallback(() => {
     setCurrentStep(1);
     setAssessmentData({ answers: {} });
@@ -173,12 +202,14 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
     setSelectedJob(null);
     setOptimizedResumeState(null);
     setCareerPlanState(null);
+    setInterviewReports([]);
     void persistWorkflowState({
       assessmentData: { answers: {} },
       recommendedJobs: [],
       selectedJob: null,
       optimizedResume: null,
-      careerPlan: null
+      careerPlan: null,
+      interviewReports: []
     });
   }, [persistWorkflowState]);
 
@@ -194,6 +225,7 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
     selectedJob,
     optimizedResume: optimizedResumeState,
     careerPlan: careerPlanState,
+    interviewReports,
     reloadWorkflowState,
     setCurrentStep,
     updateAssessmentData,
@@ -201,6 +233,7 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
     selectJob,
     setOptimizedResume,
     setCareerPlan,
+    saveInterviewReport,
     resetWorkflow
   }), [
     currentStep,
@@ -209,6 +242,7 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
     selectedJob,
     optimizedResumeState,
     careerPlanState,
+    interviewReports,
     reloadWorkflowState,
     setCurrentStep,
     updateAssessmentData,
@@ -216,6 +250,7 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
     selectJob,
     setOptimizedResume,
     setCareerPlan,
+    saveInterviewReport,
     resetWorkflow
   ]);
 

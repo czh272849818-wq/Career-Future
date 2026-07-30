@@ -1,5 +1,4 @@
-import React from 'react';
-import { CheckCircle, Circle } from 'lucide-react';
+import { CheckCircle } from 'lucide-react';
 import { useWorkflow } from '../../contexts/WorkflowContext';
 
 const WorkflowProgress = () => {
